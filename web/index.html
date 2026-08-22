@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>AI No Key — Tag & Trail</title>
+<title>AI No Key</title>
 <style>
-:root{--bg:#0b0d12;--bg2:#12151c;--bg3:#1a1f2a;--border:#2a3140;--text:#e8eaed;--muted:#8b93a7;--accent:#5eead4;--accent-dim:#2dd4bf33;--warn:#fbbf24;--ok:#34d399;--radius:12px}
-*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+:root{--bg:#0b0d12;--bg2:#12151c;--bg3:#1a1f2a;--border:#2a3140;--text:#e8eaed;--muted:#8b93a7;--accent:#5eead4;--accent-dim:#2dd4bf33;--warn:#fbbf24;--ok:#34d399}
+*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:14px}
 button,input,select{font:inherit;color:inherit}#app{min-height:100%;display:grid;grid-template-rows:auto 1fr}
 .topbar{display:flex;align-items:center;gap:1rem;padding:.85rem 1.25rem;border-bottom:1px solid var(--border);background:#12151c}
 .brand{display:flex;align-items:center;gap:.65rem;font-weight:650}.brand-mark{width:28px;height:28px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#99f6e4,#0d9488)}
@@ -13,6 +13,7 @@ button,input,select{font:inherit;color:inherit}#app{min-height:100%;display:grid
 .tab.active{color:var(--accent);border-color:#2dd4bf44;background:var(--accent-dim)}
 .status-pill{margin-left:auto;display:flex;align-items:center;gap:.5rem;padding:.35rem .75rem;border-radius:999px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:12px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}.dot.live{background:var(--ok)}.dot.demo{background:var(--warn)}
+.gear{margin-left:.35rem;background:0;border:1px solid var(--border);border-radius:8px;padding:.35rem .55rem;cursor:pointer;color:var(--muted)}
 .main{display:grid;grid-template-columns:300px 1fr;min-height:0}@media(max-width:900px){.main{grid-template-columns:1fr}}
 .sidebar{border-right:1px solid var(--border);background:var(--bg2);padding:1rem;display:flex;flex-direction:column;gap:1rem;overflow:auto}
 .panel{padding:1.25rem;overflow:auto}.card{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:.9rem}
@@ -42,8 +43,53 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 .toast{position:fixed;bottom:1rem;right:1rem;background:var(--bg3);border:1px solid var(--border);padding:.7rem 1rem;border-radius:10px;opacity:0;transition:.2s;z-index:50}
 .toast.show{opacity:1}.hidden{display:none!important}.loading{display:inline-block;width:14px;height:14px;border:2px solid #2dd4bf55;border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}h2{font-size:1.15rem;margin-bottom:.25rem}.meta{color:var(--muted);font-size:13px}
+.overlay{position:fixed;inset:0;background:rgba(5,7,12,.82);backdrop-filter:blur(8px);z-index:100;display:flex;align-items:center;justify-content:center;padding:1.5rem}
+.wizard{width:min(440px,100%);background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:1.5rem;box-shadow:0 24px 80px #000a}
+.wizard h1{font-size:1.35rem;margin-bottom:.35rem}.wizard .sub{color:var(--muted);margin-bottom:1.25rem;font-size:13px;line-height:1.5}
+.wizard .steps{display:flex;gap:.4rem;margin-bottom:1.25rem}
+.wizard .step-dot{height:4px;flex:1;border-radius:4px;background:var(--border)}.wizard .step-dot.on{background:var(--accent)}
 </style></head>
 <body>
+<div id="setup-overlay" class="overlay hidden">
+  <div class="wizard">
+    <div class="steps"><div class="step-dot on" id="sd0"></div><div class="step-dot" id="sd1"></div><div class="step-dot" id="sd2"></div></div>
+    <div id="wiz-step0">
+      <h1>Welcome to AI No Key</h1>
+      <p class="sub">Tag someone in one frame. Search every camera for the night. Built for bar ops — managers, bartenders, hookah staff.</p>
+      <button class="btn btn-primary" id="wiz-next0">Get started</button>
+      <button class="btn" id="wiz-skip" style="margin-top:.5rem">Skip for now (demo)</button>
+    </div>
+    <div id="wiz-step1" class="hidden">
+      <h1>NVR connection</h1>
+      <p class="sub">UniFi Protect or Frigate. Password is saved only on this Mac in a private file (not in Git).</p>
+      <div class="field"><label>System</label>
+        <select id="setup-type"><option value="unifi">UniFi Protect</option><option value="frigate">Frigate</option></select>
+      </div>
+      <div class="field"><label>Host / IP</label><input id="setup-host" placeholder="192.168.1.1"/></div>
+      <div class="row">
+        <div class="field"><label>Username</label><input id="setup-user" placeholder="admin" autocomplete="username"/></div>
+        <div class="field"><label>Port</label><input id="setup-port" placeholder="443"/></div>
+      </div>
+      <div class="field"><label>Password</label><input id="setup-pass" type="password" placeholder="••••••••" autocomplete="current-password"/></div>
+      <button class="btn btn-primary" id="wiz-next1">Continue</button>
+    </div>
+    <div id="wiz-step2" class="hidden">
+      <h1>Almost done</h1>
+      <p class="sub">Timezone for overnight windows (8pm–3am). Houston default is fine for your bars.</p>
+      <div class="field"><label>Timezone</label>
+        <select id="setup-tz">
+          <option value="America/Chicago" selected>America/Chicago (Houston)</option>
+          <option value="America/Denver">America/Denver (Colorado)</option>
+          <option value="America/New_York">America/New_York</option>
+          <option value="America/Los_Angeles">America/Los_Angeles</option>
+          <option value="UTC">UTC</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="wiz-save">Save & open app</button>
+      <p class="hint">Writes config.yaml + .unifi.env in the project folder.</p>
+    </div>
+  </div>
+</div>
 <div id="app">
 <header class="topbar">
 <div class="brand"><div class="brand-mark"></div>AI <span>No Key</span></div>
@@ -52,6 +98,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <button class="tab" data-tab="search">Search</button>
 <button class="tab" data-tab="trails">Trails</button>
 </nav>
+<button class="gear" id="btn-setup" title="Settings">⚙</button>
 <div class="status-pill" id="status-pill"><span class="dot demo"></span><span id="status-label">Connecting…</span></div>
 </header>
 <div class="main">
@@ -60,7 +107,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <div class="field"><label>Camera clip</label><select id="video-path"></select></div>
 <div class="field"><label>Timestamp</label><input id="tag-at" value="5"/></div>
 <button class="btn btn-primary" id="btn-tag">Detect people</button>
-<p class="hint">Live = YOLO on this machine. Demo works offline.</p></div>
+<p class="hint">One frame → enroll → search the whole night.</p></div>
 <div class="card hidden" id="enroll-box"><h3>Enroll</h3>
 <p class="hint" id="pick-label">Click a person</p>
 <div class="field"><label>Name</label><input id="enroll-name" placeholder="Marcus"/></div>
@@ -68,10 +115,10 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <button class="btn btn-primary" id="btn-enroll">Save profile</button></div>
 <div class="card"><h3>Search window</h3>
 <div class="field"><label>Profile</label><select id="search-profile"></select></div>
-<div class="row"><div class="field"><label>Start</label><input id="search-start" value="21:00"/></div>
+<div class="row"><div class="field"><label>Start</label><input id="search-start" value="20:00"/></div>
 <div class="field"><label>End</label><input id="search-end" value="03:00"/></div></div>
-<button class="btn btn-primary" id="btn-search">Search night</button>
-<p class="hint">21:00–03:00 = last night</p></div>
+<button class="btn btn-primary" id="btn-search">Search all cameras</button>
+<p class="hint">8pm–3am wraps overnight across every camera.</p></div>
 </aside>
 <section class="panel">
 <div id="view-tag">
@@ -82,7 +129,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 </div>
 <div class="people-grid" id="people-grid"></div>
 </div>
-<div id="view-search" class="hidden"><div id="trail-results"><div class="empty-state"><strong>Person trail</strong>Tag + search a window.</div></div></div>
+<div id="view-search" class="hidden"><div id="trail-results"><div class="empty-state"><strong>Person trail</strong>Tag + search 8pm–3am across cameras.</div></div></div>
 <div id="view-trails" class="hidden"><h2>Saved trails</h2><div id="trails-list" style="margin-top:1rem"></div></div>
 </section>
 </div></div>
@@ -90,15 +137,29 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <script src="demo-data.js"></script>
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-const state={mode:"demo",cameras:[],profiles:[],selected:null};
+const state={mode:"demo",cameras:[],profiles:[],selected:null,wiz:0};
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2500)}
 async function api(path,opts={}){try{const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.statusText);return await r.json()}catch(e){return path.startsWith("/api/")?null:Promise.reject(e)}}
-async function boot(){const s=await api("/api/status");if(s){state.mode=s.mode;state.cameras=s.cameras||[];state.profiles=s.profiles||[]}else{state.cameras=DEMO.cameras;state.profiles=DEMO.profiles}
+function showWiz(step){state.wiz=step;$("#setup-overlay").classList.remove("hidden");
+[0,1,2].forEach(i=>{$(`#wiz-step${i}`).classList.toggle("hidden",i!==step);$(`#sd${i}`).classList.toggle("on",i<=step)})}
+function hideWiz(){$("#setup-overlay").classList.add("hidden")}
+async function boot(){const s=await api("/api/status");
+if(s){state.mode=s.mode;state.cameras=s.cameras||[];state.profiles=s.profiles||[];
+if(s.setup&&!s.setup.configured)showWiz(0);
+}else{state.cameras=DEMO.cameras;state.profiles=DEMO.profiles;showWiz(0)}
 $(".dot").className="dot "+(state.mode==="live"?"live":"demo");
-$("#status-label").textContent=state.mode==="live"?`Live · ${s.device}`:"Demo mode";
-const vs=$("#video-path");vs.innerHTML="";state.cameras.forEach(c=>{const o=document.createElement("option");o.value=c.path||`data/cameras/${c.name}/${c.sample||""}`;o.textContent=c.sample?`${c.name} · ${c.sample}`:c.name;if((c.sample||"").includes("Hookah")||c.name==="hookah")o.selected=true;vs.appendChild(o)});
+$("#status-label").textContent=state.mode==="live"?`Live · ${s?.device||""}`:"Demo mode";
+const vs=$("#video-path");vs.innerHTML="";
+state.cameras.forEach(c=>{const o=document.createElement("option");o.value=c.path||`data/cameras/${c.name}/${c.sample||""}`;o.textContent=c.sample?`${c.name} · ${c.sample}`:c.name;if((c.sample||"").includes("Hookah")||c.name==="hookah")o.selected=true;vs.appendChild(o)});
 $("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("")||"<option>No profiles</option>";
 }
+$("#wiz-next0").onclick=()=>showWiz(1);
+$("#wiz-skip").onclick=()=>hideWiz();
+$("#wiz-next1").onclick=()=>{if(!$("#setup-host").value.trim()){toast("Enter host IP");return}showWiz(2)};
+$("#wiz-save").onclick=async()=>{const body={host:$("#setup-host").value.trim(),username:$("#setup-user").value.trim(),password:$("#setup-pass").value,timezone:$("#setup-tz").value,nvr_type:$("#setup-type").value,port:$("#setup-port").value||undefined};
+const res=await api("/api/setup",{method:"POST",body:JSON.stringify(body)});
+if(res){toast("Saved — config + secrets on this Mac");hideWiz()}else{toast("Could not save (is the server running?)");hideWiz()}};
+$("#btn-setup").onclick=()=>showWiz(1);
 function showTab(n){$$(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===n));
 $("#view-tag").classList.toggle("hidden",n!=="tag");$("#view-search").classList.toggle("hidden",n!=="search");$("#view-trails").classList.toggle("hidden",n!=="trails");
 if(n==="trails")loadTrails()}
@@ -110,16 +171,16 @@ if(!session){const canvas=document.createElement("canvas");const people=DEMO.tag
 $("#tag-meta").textContent=session.num_people+" people @ "+session.at_s+"s";
 const img=$("#overview-img");img.src=session.overview_b64.startsWith("data:")?session.overview_b64:"data:image/jpeg;base64,"+session.overview_b64;img.classList.remove("hidden");$("#frame-empty").classList.add("hidden");
 const grid=$("#people-grid");grid.innerHTML="";session.people.forEach(p=>{const d=document.createElement("div");d.className="person-card";d.innerHTML=`<img src="${p.crop_b64.startsWith("data:")?p.crop_b64:"data:image/jpeg;base64,"+p.crop_b64}"/><div class="info"><span class="idx">#${p.index}</span><span>${(p.conf*100).toFixed(0)}%</span></div>`;d.onclick=()=>{state.selected=p.index;$$(".person-card").forEach(x=>x.classList.remove("selected"));d.classList.add("selected");$("#pick-label").textContent="Selected #"+p.index};grid.appendChild(d)});
-$("#enroll-box").classList.remove("hidden");btn.disabled=false;btn.textContent="Detect people";state._session=session};
+$("#enroll-box").classList.remove("hidden");btn.disabled=false;btn.textContent="Detect people"};
 $("#btn-enroll").onclick=async()=>{if(state.selected==null)return toast("Pick a person");const name=$("#enroll-name").value.trim();if(!name)return toast("Enter a name");
 const role=$("#enroll-role").value.trim();const live=await api("/api/enroll",{method:"POST",body:JSON.stringify({video:$("#video-path").value,at:$("#tag-at").value,pick:state.selected,name,role})});
 if(live){state.profiles=live.profiles;toast("Enrolled "+name)}else{if(!state.profiles.find(p=>(p.name||p)===name))state.profiles.push({name,role});DEMO.trails[name]={name,num_appearances:5,appearances:DEMO.trails.Marcus.appearances.slice(0,5)};toast("Demo enrolled "+name)}
 $("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("");$("#search-profile").value=name};
-$("#btn-search").onclick=async()=>{const profile=$("#search-profile").value,start=$("#search-start").value||"21:00",end=$("#search-end").value||"03:00";
+$("#btn-search").onclick=async()=>{const profile=$("#search-profile").value,start=$("#search-start").value||"20:00",end=$("#search-end").value||"03:00";
 const btn=$("#btn-search");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';
 let trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end})});
 if(!trail){trail={...(DEMO.trails[profile]||{name:profile,num_appearances:0,appearances:[]}),window:{start,end},demo:true};toast("Demo trail")}
-renderTrail(trail);btn.disabled=false;btn.textContent="Search night";showTab("search")};
+renderTrail(trail);btn.disabled=false;btn.textContent="Search all cameras";showTab("search")};
 function hms(s){s=Math.max(0,Math.floor(s||0));const m=Math.floor(s/60),sec=s%60;return String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0")}
 function renderTrail(trail){const box=$("#trail-results");if(!trail.num_appearances){box.innerHTML='<div class="empty-state"><strong>No appearances</strong></div>';return}
 const cams={};trail.appearances.forEach(a=>cams[a.camera]=(cams[a.camera]||0)+1);

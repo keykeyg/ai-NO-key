@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed → Follow: track one individual across the whole night."""
+"""Seed → Follow: track one individual across cameras (optional time window)."""
 
 from __future__ import annotations
 
@@ -21,11 +21,11 @@ def main() -> None:
     parser.add_argument("--seed-camera", help="Camera of the seed track")
     parser.add_argument("--seed-track", type=int, help="Local track ID of the seed")
     parser.add_argument("--name", default="target", help="Name for trail when using seed-track")
-    parser.add_argument(
-        "--force-detect",
-        action="store_true",
-        help="Ignore cache and re-run YOLO on all cameras",
-    )
+    parser.add_argument("--start", help="Wall-clock window start (21:00 or ISO)")
+    parser.add_argument("--end", help="Wall-clock window end (03:00 wraps overnight)")
+    parser.add_argument("--start-s", type=float, help="Keep tracks after this many seconds")
+    parser.add_argument("--end-s", type=float, help="Keep tracks before this many seconds")
+    parser.add_argument("--force-detect", action="store_true")
     args = parser.parse_args()
 
     if not args.profile and not (args.seed_camera and args.seed_track is not None):
@@ -35,9 +35,12 @@ def main() -> None:
     setup_logging(cfg.get("log_level", "INFO"))
 
     pipeline = OvernightPipeline(cfg)
-
     print("Loading detections (from cache if available)...")
     detection = pipeline.run_detection(force=args.force_detect)
+    detection = pipeline.apply_window(
+        detection, start=args.start, end=args.end,
+        start_s=args.start_s, end_s=args.end_s,
+    )
 
     if args.profile:
         report = pipeline.follow_profile(args.profile, detection)
@@ -56,7 +59,6 @@ def main() -> None:
         print(f"  {a['camera']:15s}  {a['start_s']:7.1f}s → {a['end_s']:7.1f}s  score={a['score']:.2f}")
     if report["num_appearances"] > 15:
         print(f"  ... and {report['num_appearances'] - 15} more")
-    print(f"\nOpen {cfg['output_dir']}/trails/{label}/report.html after running export_report.py")
 
 
 if __name__ == "__main__":

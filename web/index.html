@@ -55,13 +55,13 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
     <div class="steps"><div class="step-dot on" id="sd0"></div><div class="step-dot" id="sd1"></div><div class="step-dot" id="sd2"></div></div>
     <div id="wiz-step0">
       <h1>Welcome to AI No Key</h1>
-      <p class="sub">Tag someone in one frame. Search every camera for the night. Built for bar ops — managers, bartenders, hookah staff.</p>
+      <p class="sub">Tag someone in one frame. Search every camera for the night. NVR pulls only the window you ask for.</p>
       <button class="btn btn-primary" id="wiz-next0">Get started</button>
       <button class="btn" id="wiz-skip" style="margin-top:.5rem">Skip for now (demo)</button>
     </div>
     <div id="wiz-step1" class="hidden">
       <h1>NVR connection</h1>
-      <p class="sub">UniFi Protect or Frigate. Password is saved only on this Mac in a private file (not in Git).</p>
+      <p class="sub">UniFi Protect or Frigate. Password saved only on this Mac (.unifi.env).</p>
       <div class="field"><label>System</label>
         <select id="setup-type"><option value="unifi">UniFi Protect</option><option value="frigate">Frigate</option></select>
       </div>
@@ -75,7 +75,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
     </div>
     <div id="wiz-step2" class="hidden">
       <h1>Almost done</h1>
-      <p class="sub">Timezone for overnight windows (8pm–3am). Houston default is fine for your bars.</p>
+      <p class="sub">Timezone for overnight windows (8pm–3am).</p>
       <div class="field"><label>Timezone</label>
         <select id="setup-tz">
           <option value="America/Chicago" selected>America/Chicago (Houston)</option>
@@ -86,7 +86,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
         </select>
       </div>
       <button class="btn btn-primary" id="wiz-save">Save & open app</button>
-      <p class="hint">Writes config.yaml + .unifi.env in the project folder.</p>
+      <p class="hint">Writes config.yaml + .unifi.env. Default source is NVR pull.</p>
     </div>
   </div>
 </div>
@@ -107,7 +107,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <div class="field"><label>Camera clip</label><select id="video-path"></select></div>
 <div class="field"><label>Timestamp</label><input id="tag-at" value="5"/></div>
 <button class="btn btn-primary" id="btn-tag">Detect people</button>
-<p class="hint">One frame → enroll → search the whole night.</p></div>
+<p class="hint">One frame → enroll → search the night.</p></div>
 <div class="card hidden" id="enroll-box"><h3>Enroll</h3>
 <p class="hint" id="pick-label">Click a person</p>
 <div class="field"><label>Name</label><input id="enroll-name" placeholder="Marcus"/></div>
@@ -117,8 +117,14 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <div class="field"><label>Profile</label><select id="search-profile"></select></div>
 <div class="row"><div class="field"><label>Start</label><input id="search-start" value="20:00"/></div>
 <div class="field"><label>End</label><input id="search-end" value="03:00"/></div></div>
+<div class="field"><label>Source</label>
+  <select id="search-source">
+    <option value="nvr" selected>NVR pull (only this window)</option>
+    <option value="local">Local drop-in folders</option>
+  </select>
+</div>
 <button class="btn btn-primary" id="btn-search">Search all cameras</button>
-<p class="hint">8pm–3am wraps overnight across every camera.</p></div>
+<p class="hint">NVR pulls only 8pm–3am from Protect — not 90GB. Local uses data/cameras.</p></div>
 </aside>
 <section class="panel">
 <div id="view-tag">
@@ -145,6 +151,7 @@ function showWiz(step){state.wiz=step;$("#setup-overlay").classList.remove("hidd
 function hideWiz(){$("#setup-overlay").classList.add("hidden")}
 async function boot(){const s=await api("/api/status");
 if(s){state.mode=s.mode;state.cameras=s.cameras||[];state.profiles=s.profiles||[];
+if(s.source_mode&&$("#search-source"))$("#search-source").value=s.source_mode;
 if(s.setup&&!s.setup.configured)showWiz(0);
 }else{state.cameras=DEMO.cameras;state.profiles=DEMO.profiles;showWiz(0)}
 $(".dot").className="dot "+(state.mode==="live"?"live":"demo");
@@ -156,9 +163,9 @@ $("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</opti
 $("#wiz-next0").onclick=()=>showWiz(1);
 $("#wiz-skip").onclick=()=>hideWiz();
 $("#wiz-next1").onclick=()=>{if(!$("#setup-host").value.trim()){toast("Enter host IP");return}showWiz(2)};
-$("#wiz-save").onclick=async()=>{const body={host:$("#setup-host").value.trim(),username:$("#setup-user").value.trim(),password:$("#setup-pass").value,timezone:$("#setup-tz").value,nvr_type:$("#setup-type").value,port:$("#setup-port").value||undefined};
+$("#wiz-save").onclick=async()=>{const body={host:$("#setup-host").value.trim(),username:$("#setup-user").value.trim(),password:$("#setup-pass").value,timezone:$("#setup-tz").value,nvr_type:$("#setup-type").value,port:$("#setup-port").value||undefined,source_mode:"nvr"};
 const res=await api("/api/setup",{method:"POST",body:JSON.stringify(body)});
-if(res){toast("Saved — config + secrets on this Mac");hideWiz()}else{toast("Could not save (is the server running?)");hideWiz()}};
+if(res){toast("Saved — NVR is default");hideWiz()}else{toast("Could not save (is the server running?)");hideWiz()}};
 $("#btn-setup").onclick=()=>showWiz(1);
 function showTab(n){$$(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===n));
 $("#view-tag").classList.toggle("hidden",n!=="tag");$("#view-search").classList.toggle("hidden",n!=="search");$("#view-trails").classList.toggle("hidden",n!=="trails");
@@ -176,15 +183,15 @@ $("#btn-enroll").onclick=async()=>{if(state.selected==null)return toast("Pick a 
 const role=$("#enroll-role").value.trim();const live=await api("/api/enroll",{method:"POST",body:JSON.stringify({video:$("#video-path").value,at:$("#tag-at").value,pick:state.selected,name,role})});
 if(live){state.profiles=live.profiles;toast("Enrolled "+name)}else{if(!state.profiles.find(p=>(p.name||p)===name))state.profiles.push({name,role});DEMO.trails[name]={name,num_appearances:5,appearances:DEMO.trails.Marcus.appearances.slice(0,5)};toast("Demo enrolled "+name)}
 $("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("");$("#search-profile").value=name};
-$("#btn-search").onclick=async()=>{const profile=$("#search-profile").value,start=$("#search-start").value||"20:00",end=$("#search-end").value||"03:00";
+$("#btn-search").onclick=async()=>{const profile=$("#search-profile").value,start=$("#search-start").value||"20:00",end=$("#search-end").value||"03:00",source=($("#search-source")&&$("#search-source").value)||"nvr";
 const btn=$("#btn-search");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';
-let trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end})});
-if(!trail){trail={...(DEMO.trails[profile]||{name:profile,num_appearances:0,appearances:[]}),window:{start,end},demo:true};toast("Demo trail")}
+let trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end,source})});
+if(!trail){trail={...(DEMO.trails[profile]||{name:profile,num_appearances:0,appearances:[]}),window:{start,end},source_mode:source,demo:true};toast("Demo trail")}
 renderTrail(trail);btn.disabled=false;btn.textContent="Search all cameras";showTab("search")};
 function hms(s){s=Math.max(0,Math.floor(s||0));const m=Math.floor(s/60),sec=s%60;return String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0")}
 function renderTrail(trail){const box=$("#trail-results");if(!trail.num_appearances){box.innerHTML='<div class="empty-state"><strong>No appearances</strong></div>';return}
 const cams={};trail.appearances.forEach(a=>cams[a.camera]=(cams[a.camera]||0)+1);
-box.innerHTML=`<h2>${trail.name}</h2><div class="meta">${trail.demo?"Demo · ":""}${trail.window?.start||""} → ${trail.window?.end||""}</div>
+box.innerHTML=`<h2>${trail.name}</h2><div class="meta">${trail.demo?"Demo · ":""}${trail.source_mode?trail.source_mode+" · ":""}${trail.window?.start||""} → ${trail.window?.end||""}</div>
 <div class="trail-summary"><div class="stat"><div class="v">${trail.num_appearances}</div><div class="k">Appearances</div></div>
 <div class="stat"><div class="v">${Object.keys(cams).length}</div><div class="k">Cameras</div></div></div>
 <div>${Object.entries(cams).map(([c,n])=>`<span class="chip"><strong>${c}</strong> · ${n}</span>`).join("")}</div>

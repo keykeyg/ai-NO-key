@@ -8,12 +8,14 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .timerange import parse_when, tzinfo_from_name, window as parse_window
 from .utils import ensure_dir
 
 logger = logging.getLogger(__name__)
+
+ProgressCb = Optional[Callable[[str, int, int, str], None]]
 
 
 def _env(name: str, fallback: str = "") -> str:
@@ -24,18 +26,57 @@ class NvrError(RuntimeError):
     pass
 
 
+def test_connection(config: dict) -> dict:
+    """Login + list cameras. Does not pull video."""
+    nvr = config.get("nvr") or {}
+    kind = (nvr.get("type") or "unifi").lower()
+    host = nvr.get("host") or _env("UNIFI_HOST") or _env("UFP_HOST") or _env("FRIGATE_HOST")
+    if not host:
+        raise NvrError("No host configured")
+
+    if kind == "frigate":
+        port = int(nvr.get("port") or _env("FRIGATE_PORT") or 5000)
+        scheme = nvr.get("scheme") or "http"
+        url = f"{scheme}://{host}:{port}/api/config"
+        try:
+            with urllib.request.urlopen(url, timeout=15) as resp:
+                cfg = json.loads(resp.read().decode())
+            cams = list((cfg.get("cameras") or {}).keys())
+            return {"ok": True, "type": "frigate", "host": host, "cameras": cams, "count": len(cams)}
+        except Exception as e:
+            raise NvrError(f"Frigate unreachable: {e}") from e
+
+    port = int(nvr.get("port") or _env("UNIFI_PORT") or 443)
+    user = nvr.get("username") or _env("UNIFI_USERNAME") or _env("UFP_USERNAME")
+    password = nvr.get("password") or _env("UNIFI_PASSWORD") or _env("UFP_PASSWORD")
+    verify = bool(nvr.get("verify_ssl", False))
+    if not user or not password:
+        raise NvrError("UniFi needs username/password")
+    opener = _unifi_login(host, port, user, password, verify)
+    cam_list = _unifi_cameras(opener, host, port)
+    names = [c.get("name") or c.get("id") for c in cam_list if c.get("name") or c.get("id")]
+    mapped = list((nvr.get("cameras") or {}).keys())
+    matched = [n for n in names if n in mapped]
+    return {
+        "ok": True,
+        "type": "unifi",
+        "host": host,
+        "cameras": names,
+        "count": len(names),
+        "mapped": mapped,
+        "mapped_found": matched,
+        "mapped_missing": [m for m in mapped if m not in names],
+    }
+
+
 def export_range(
     config: dict,
     start: str,
     end: str,
     cameras: Optional[List[str]] = None,
     out_root: Optional[str] = None,
+    progress: ProgressCb = None,
 ) -> Dict[str, List[Path]]:
-    """Download NVR footage for a time window into data/cameras/<folder>/.
-
-    If cameras is None, only pulls cameras listed under config nvr.cameras
-    (your mapped set) — never the entire Protect site.
-    """
     nvr = config.get("nvr") or {}
     kind = (nvr.get("type") or "unifi").lower()
     tz_name = config.get("timezone") or nvr.get("timezone") or "America/Chicago"
@@ -46,20 +87,18 @@ def export_range(
     dest = Path(out_root or config.get("cameras_root") or "data/cameras")
     ensure_dir(dest)
 
-    # Default: only the mapped Protect names (not every camera on the NVR)
     if cameras is None:
         mapped = nvr.get("cameras") or {}
         cameras = list(mapped.keys()) if mapped else None
 
     if kind in ("unifi", "protect", "unifi-protect"):
-        return _pull_unifi(nvr, t0, t1, cameras, dest, tz_name)
+        return _pull_unifi(nvr, t0, t1, cameras, dest, tz_name, progress=progress)
     if kind == "frigate":
-        return _pull_frigate(nvr, t0, t1, cameras, dest)
+        return _pull_frigate(nvr, t0, t1, cameras, dest, progress=progress)
     raise NvrError(f"Unknown nvr.type: {kind}")
 
 
 def _name_map(nvr: dict) -> Dict[str, str]:
-    """Protect/Frigate camera name → local folder name."""
     raw = nvr.get("cameras") or {}
     out = {}
     for k, v in raw.items():
@@ -84,11 +123,7 @@ def _chunk_bounds(t0: datetime, t1: datetime, minutes: int = 15):
         cur = nxt
 
 
-# ---------------------------------------------------------------------------
-# UniFi Protect (login cookie + video/export)
-# ---------------------------------------------------------------------------
-
-def _pull_unifi(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path, tz_name: str) -> Dict[str, List[Path]]:
+def _pull_unifi(nvr, t0, t1, cameras, dest, tz_name, progress: ProgressCb = None):
     host = nvr.get("host") or _env("UNIFI_HOST") or _env("UFP_HOST")
     if not host:
         raise NvrError("Set nvr.host or UNIFI_HOST")
@@ -99,21 +134,19 @@ def _pull_unifi(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path, tz_n
     chunk_min = int(nvr.get("chunk_minutes") or 15)
     mapping = _name_map(nvr)
 
-    # Prefer official-ish uiprotect if installed
     pulled = _try_uiprotect(host, port, user, password, nvr, t0, t1, cameras, dest, mapping, chunk_min, verify)
     if pulled is not None:
         return pulled
 
     if not user or not password:
-        raise NvrError("UniFi needs username/password (config nvr.* or UNIFI_USERNAME / UNIFI_PASSWORD)")
+        raise NvrError("UniFi needs username/password")
 
     opener = _unifi_login(host, port, user, password, verify)
     cam_list = _unifi_cameras(opener, host, port)
     logger.info("UniFi Protect: %d cameras on site", len(cam_list))
 
     wanted = {c.lower() for c in cameras} if cameras else None
-    written: Dict[str, List[Path]] = {}
-
+    targets = []
     for cam in cam_list:
         name = cam.get("name") or cam.get("id")
         cid = cam.get("id")
@@ -122,6 +155,13 @@ def _pull_unifi(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path, tz_n
         folder = _folder_for(name, mapping)
         if wanted and name.lower() not in wanted and folder.lower() not in wanted:
             continue
+        targets.append((name, cid, folder))
+
+    written: Dict[str, List[Path]] = {}
+    total = max(len(targets), 1)
+    for i, (name, cid, folder) in enumerate(targets, 1):
+        if progress:
+            progress("pull", i, total, name)
         cam_dir = ensure_dir(dest / folder)
         files: List[Path] = []
         for a, b in _chunk_bounds(t0, t1, chunk_min):
@@ -141,23 +181,21 @@ def _pull_unifi(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path, tz_n
 def _ssl_ctx(verify: bool):
     if verify:
         return ssl.create_default_context()
-    ctx = ssl._create_unverified_context()
-    return ctx
+    return ssl._create_unverified_context()
 
 
 def _unifi_login(host: str, port: int, user: str, password: str, verify: bool):
     url = f"https://{host}:{port}/api/auth/login"
     body = json.dumps({"username": user, "password": password, "rememberMe": True}).encode()
     req = urllib.request.Request(
-        url,
-        data=body,
+        url, data=body,
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
     ctx = _ssl_ctx(verify)
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-            cookie = resp.headers.get("Set-Cookie", "")
+            _ = resp.headers.get("Set-Cookie", "")
     except Exception as e:
         raise NvrError(f"UniFi login failed: {e}") from e
 
@@ -165,10 +203,8 @@ def _unifi_login(host: str, port: int, user: str, password: str, verify: bool):
         urllib.request.HTTPSHandler(context=ctx),
         urllib.request.HTTPCookieProcessor(),
     )
-    # Re-login through opener so cookies persist
     req2 = urllib.request.Request(
-        url,
-        data=body,
+        url, data=body,
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
@@ -177,7 +213,6 @@ def _unifi_login(host: str, port: int, user: str, password: str, verify: bool):
     except Exception as e:
         raise NvrError(f"UniFi login (cookie jar) failed: {e}") from e
     logger.info("Logged into UniFi OS at %s", host)
-    _ = cookie
     return opener
 
 
@@ -263,11 +298,7 @@ def _try_uiprotect(host, port, user, password, nvr, t0, t1, cameras, dest, mappi
         return None
 
 
-# ---------------------------------------------------------------------------
-# Frigate
-# ---------------------------------------------------------------------------
-
-def _pull_frigate(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path) -> Dict[str, List[Path]]:
+def _pull_frigate(nvr, t0, t1, cameras, dest, progress: ProgressCb = None):
     host = nvr.get("host") or _env("FRIGATE_HOST") or "127.0.0.1"
     port = int(nvr.get("port") or _env("FRIGATE_PORT") or 5000)
     scheme = nvr.get("scheme") or "http"
@@ -285,7 +316,10 @@ def _pull_frigate(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path) ->
     written: Dict[str, List[Path]] = {}
     start_ts = int(t0.timestamp())
     end_ts = int(t1.timestamp())
-    for name in cam_names:
+    total = max(len(cam_names), 1)
+    for i, name in enumerate(cam_names, 1):
+        if progress:
+            progress("pull", i, total, name)
         folder = _folder_for(name, mapping)
         cam_dir = ensure_dir(dest / folder)
         out = cam_dir / f"{folder}_{t0.strftime('%Y%m%d_%H%M%S')}_{t1.strftime('%H%M%S')}.mp4"

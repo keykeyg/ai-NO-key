@@ -87,6 +87,7 @@ def setup_status() -> dict:
     }
 
 def save_setup(body: dict) -> dict:
+    global CFG
     import yaml
     host = (body.get("host") or "").strip()
     username = (body.get("username") or "").strip()
@@ -132,7 +133,6 @@ def save_setup(body: dict) -> dict:
             os.environ["UNIFI_PASSWORD"] = password
         _secrets_path().write_text("\n".join(lines) + "\n")
 
-    global CFG
     CFG = _load_cfg("config.yaml")
     return setup_status()
 
@@ -326,9 +326,8 @@ def api_test_nvr() -> dict:
         return {"ok": False, "error": str(e)}
 
 def api_seed_pull(body: dict) -> dict:
-    """Pull a short window around a timestamp from one Protect camera for tagging."""
     from src.nvr import export_range, NvrError
-    from src.timerange import parse_when, tzinfo_from_name
+    from src.timerange import parse_when
     camera = (body.get("camera") or "").strip()
     when = (body.get("when") or body.get("at") or "").strip()
     minutes = float(body.get("minutes") or 2)
@@ -354,8 +353,10 @@ def api_seed_pull(body: dict) -> dict:
     return {"ok": True, "start": start_s, "end": end_s, "camera": camera, "files": files, "cameras": list_cameras()}
 
 def api_set_site(body: dict) -> dict:
+    global CFG
     import yaml
     from src.sites import apply_site, list_sites
+    from src.utils import load_config
     site_id = (body.get("site") or body.get("id") or "").strip()
     if not site_id:
         raise ValueError("site required")
@@ -366,10 +367,6 @@ def api_set_site(body: dict) -> dict:
         data = dict(CFG)
     data["active_site"] = site_id
     cfg_p.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
-    global CFG
-    CFG = apply_site(_load_cfg.__wrapped__(path) if False else _load_cfg("config.yaml"))
-    # force reload
-    from src.utils import load_config
     raw = load_config(str(cfg_p)) if cfg_p.exists() else data
     CFG = apply_site(raw, site_id)
     return {"ok": True, "active_site": site_id, "sites": list_sites(CFG), "status": api_status()}

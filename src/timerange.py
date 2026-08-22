@@ -108,14 +108,47 @@ def parse_seconds(value: str | float | int) -> float:
     raise ValueError(f"Could not parse seconds: {value!r}")
 
 
-def window(start: str | None, end: str | None, tz_name: str | None = None) -> Tuple[Optional[datetime], Optional[datetime]]:
+def _has_explicit_date(value: str | None) -> bool:
+    if not value:
+        return False
+    raw = value.strip()
+    if re.search(r"\d{4}", raw):
+        return True
+    if re.search(r"\d{1,2}[/-]\d{1,2}", raw):
+        return True
+    return False
+
+
+def window(
+    start: str | None,
+    end: str | None,
+    tz_name: str | None = None,
+    now: Optional[datetime] = None,
+) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """Parse a search/export window.
+
+    Bare clocks like 21:00–03:00 wrap overnight. If that window is still in
+    the future (e.g. it's 1am and you typed 21:00–03:00), shift back one day
+    so you search last night, not tonight. Explicit dates are never shifted.
+    """
     if not start and not end:
         return None, None
     t0 = parse_when(start, tz_name) if start else None
     t1 = parse_when(end, tz_name, default_date=t0) if end else None
     if t0 and t1 and t1 <= t0:
         t1 = t1 + timedelta(days=1)
+
+    dated = _has_explicit_date(start) or _has_explicit_date(end)
+    if not dated and t0 is not None:
+        tz = t0.tzinfo
+        ref = now.astimezone(tz) if now else datetime.now(tz)
+        # Bare clock resolved to a future night → user means the night just ended.
+        if t0 > ref:
+            t0 = t0 - timedelta(days=1)
+            if t1 is not None:
+                t1 = t1 - timedelta(days=1)
     return t0, t1
+
 
 
 def parse_protect_filename(path: str | Path, tz_name: str | None = None) -> Optional[Tuple[datetime, datetime]]:

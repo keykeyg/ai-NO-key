@@ -22,6 +22,7 @@ def start_job(job_id: str, label: str = "search") -> str:
             "detail": "",
             "error": None,
             "result": None,
+            "cancel": False,
             "started": time.time(),
             "updated": time.time(),
         }
@@ -54,6 +55,23 @@ def update(
         job["updated"] = time.time()
 
 
+def request_cancel(job_id: str) -> bool:
+    with _lock:
+        job = _jobs.get(job_id)
+        if not job or job.get("status") != "running":
+            return False
+        job["cancel"] = True
+        job["message"] = "Cancel requested…"
+        job["updated"] = time.time()
+        return True
+
+
+def is_cancelled(job_id: str) -> bool:
+    with _lock:
+        job = _jobs.get(job_id)
+        return bool(job and job.get("cancel"))
+
+
 def complete(job_id: str, result: Any) -> None:
     with _lock:
         job = _jobs.get(job_id)
@@ -71,8 +89,8 @@ def fail(job_id: str, error: str) -> None:
         job = _jobs.get(job_id)
         if not job:
             return
-        job["status"] = "error"
-        job["phase"] = "error"
+        job["status"] = "error" if error != "cancelled" else "cancelled"
+        job["phase"] = job["status"]
         job["message"] = error
         job["error"] = error
         job["updated"] = time.time()
@@ -83,7 +101,6 @@ def get(job_id: str) -> Optional[Dict[str, Any]]:
         job = _jobs.get(job_id)
         if not job:
             return None
-        # Don't send huge result twice via status polls — UI fetches once on done
         out = {k: v for k, v in job.items() if k != "result"}
         out["has_result"] = job.get("result") is not None
         return out

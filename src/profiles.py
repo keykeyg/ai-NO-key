@@ -40,7 +40,6 @@ class StaffProfile:
 
 
 def _largest_person_crop(img: np.ndarray, model_name: str = "yolo11n.pt") -> Optional[np.ndarray]:
-    """Run a quick person detector on an enrollment photo and return the largest person crop."""
     try:
         from ultralytics import YOLO
         model = YOLO(model_name)
@@ -88,6 +87,15 @@ class ProfileStore:
     def list_profiles(self) -> List[str]:
         return sorted(p.stem for p in self.root.glob("*.json"))
 
+    def _add_crop(self, crop: np.ndarray, path_label: str,
+                  face_embs: list, body_embs: list, kept: list) -> None:
+        face_e, body_e = self.embedder.embed_image(crop)
+        if body_e is not None:
+            body_embs.append(body_e.tolist())
+            kept.append(path_label)
+        if face_e is not None:
+            face_embs.append(face_e.tolist())
+
     def enroll_from_images(
         self,
         name: str,
@@ -96,10 +104,7 @@ class ProfileStore:
         notes: str = "",
         detect_person: bool = True,
     ) -> StaffProfile:
-        face_embs = []
-        body_embs = []
-        kept_paths = []
-
+        face_embs, body_embs, kept_paths = [], [], []
         for p in image_paths:
             p = Path(p)
             if not p.exists():
@@ -108,30 +113,42 @@ class ProfileStore:
             img = cv2.imread(str(p))
             if img is None:
                 continue
-
             crop = img
             if detect_person:
                 person = _largest_person_crop(img)
-                if person is not None:
-                    crop = person
-                else:
-                    logger.warning("No person detected in %s — using full image", p.name)
-
-            face_e, body_e = self.embedder.embed_image(crop)
-            if body_e is not None:
-                body_embs.append(body_e.tolist())
-                kept_paths.append(str(p))
-            if face_e is not None:
-                face_embs.append(face_e.tolist())
-
+                crop = person if person is not None else img
+            self._add_crop(crop, str(p), face_embs, body_embs, kept_paths)
         if not body_embs and not face_embs:
             raise RuntimeError(f"Could not extract any embeddings for {name}")
-
         profile = StaffProfile(
-            name=name,
-            role=role,
-            notes=notes,
+            name=name, role=role, notes=notes,
             image_paths=kept_paths,
+            face_embeddings=face_embs,
+            body_embeddings=body_embs,
+        )
+        self.save(profile)
+        return profile
+
+    def enroll_from_crops(
+        self,
+        name: str,
+        crops: List[np.ndarray],
+        saved_paths: Optional[List[str]] = None,
+        role: str = "",
+        notes: str = "",
+    ) -> StaffProfile:
+        """Enroll directly from person crops (already boxed)."""
+        face_embs, body_embs, kept = [], [], []
+        for i, crop in enumerate(crops):
+            if crop is None or getattr(crop, "size", 0) == 0:
+                continue
+            label = (saved_paths[i] if saved_paths and i < len(saved_paths) else f"crop_{i}")
+            self._add_crop(crop, label, face_embs, body_embs, kept)
+        if not body_embs and not face_embs:
+            raise RuntimeError(f"Could not extract any embeddings for {name}")
+        profile = StaffProfile(
+            name=name, role=role, notes=notes,
+            image_paths=kept,
             face_embeddings=face_embs,
             body_embeddings=body_embs,
         )

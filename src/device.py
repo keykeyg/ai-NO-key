@@ -40,3 +40,11 @@ def resolve_device(preferred: str | None = None) -> str:
 
     logger.warning("CUDA not available — using cpu")
     return "cpu"
+
+
+def reid_device(preferred: str | None = None) -> str:
+    """OSNet / torchreid wants 'cuda' or 'cpu', not Ultralytics GPU index '0'."""
+    d = resolve_device(preferred)
+    if d in ("0", "cuda", "cuda:0") or d.isdigit():
+        return "cuda"
+    return d

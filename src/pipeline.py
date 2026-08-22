@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .cache import DetectionCache
 from .clips import extract_person_clips
 from .detector import PersonDetector
-from .device import resolve_device
+from .device import reid_device, resolve_device
 from .matcher import SeedMatcher
 from .profiles import ProfileStore
 from .reid import MultiModalEmbedder
+from .timerange import filter_embeddings, filter_tracks_window, window as parse_window
 from .topology import CameraTopology
 from .tracker import CameraTracker, Track
 from .utils import ensure_dir, list_camera_videos, save_json
@@ -22,6 +22,7 @@ class OvernightPipeline:
     def __init__(self, config: Dict[str, Any]):
         self.cfg = config
         self.output_dir = ensure_dir(config["output_dir"])
+        self.tz_name = config.get("timezone") or "America/Chicago"
 
         reid_cfg = config.get("reid", {})
         device = resolve_device(reid_cfg.get("device") or config.get("device") or "0")
@@ -42,7 +43,7 @@ class OvernightPipeline:
             body_method=reid_cfg.get("body_method", "osnet"),
             face_backend=reid_cfg.get("face_backend", "none"),
             face_weight=reid_cfg.get("face_weight", 0.15),
-            device="cuda" if str(device) in ("0", "cuda", "cuda:0") or str(device).isdigit() else device,
+            device=reid_device(device),
         )
         self.topology = CameraTopology(config.get("topology", {}))
         self.profiles = ProfileStore(config.get("profiles_dir", "data/profiles"), self.embedder)
@@ -113,10 +114,38 @@ class OvernightPipeline:
         self.cache.save_meta(list(cameras.keys()), total)
         return {"tracks": all_tracks, "embeddings": all_embeddings, "cameras": list(cameras.keys())}
 
+    def apply_window(
+        self,
+        detection: Dict[str, Any],
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        start_s: Optional[float] = None,
+        end_s: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        t0, t1 = parse_window(start, end, self.tz_name)
+        tracks = filter_tracks_window(
+            detection["tracks"], t0, t1,
+            tz_name=self.tz_name, start_s=start_s, end_s=end_s,
+        )
+        embs = filter_embeddings(detection["embeddings"], tracks)
+        return {
+            "tracks": tracks,
+            "embeddings": embs,
+            "cameras": list(tracks.keys()),
+            "window": {
+                "start": t0.isoformat() if t0 else None,
+                "end": t1.isoformat() if t1 else None,
+                "start_s": start_s,
+                "end_s": end_s,
+            },
+        }
+
     def follow_profile(self, profile_name: str, detection_result: Dict) -> Dict:
         profile = self.profiles.load(profile_name)
         if profile is None:
-            raise FileNotFoundError(f"No profile named '{profile_name}'. Run enroll_staff.py first.")
+            raise FileNotFoundError(
+                f"No profile named '{profile_name}'. Run tag_person.py or enroll_staff.py first."
+            )
         trail = self.matcher.follow_profile(
             profile, detection_result["tracks"], detection_result["embeddings"]
         )
@@ -135,6 +164,27 @@ class OvernightPipeline:
         trail = self.matcher.follow_seed(
             emb.get("face"), emb.get("body"), camera, t0,
             tracks, embs, name=name,
+        )
+        return self._finalize_trail(trail, tracks)
+
+    def follow_profile_crop(
+        self, name: str, detection_result: Dict, face, body
+    ) -> Dict:
+        tracks = detection_result["tracks"]
+        embs = detection_result["embeddings"]
+        best = None
+        best_score = -1.0
+        for cam, trs in tracks.items():
+            for lid, tr in trs.items():
+                emb = embs.get(cam, {}).get(lid, {})
+                score = self.matcher._score(face, body, emb.get("face"), emb.get("body"))
+                if score > best_score:
+                    best_score = score
+                    best = (cam, tr.start_end()[0])
+        if best is None:
+            return {"name": name, "num_appearances": 0, "appearances": []}
+        trail = self.matcher.follow_seed(
+            face, body, best[0], best[1], tracks, embs, name=name,
         )
         return self._finalize_trail(trail, tracks)
 

@@ -24,8 +24,8 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 .btn{border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:8px;padding:.55rem .9rem;cursor:pointer;width:100%}
 .btn-primary{background:linear-gradient(180deg,#2dd4bf,#14b8a6);border-color:#0f766e;color:#042f2e;font-weight:650}
 .btn:disabled{opacity:.55;cursor:wait}.hint{font-size:12px;color:var(--muted);margin-top:.35rem}
-.frame-wrap{background:#000;border:1px solid var(--border);border-radius:12px;min-height:320px;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.frame-wrap img{max-width:100%;max-height:55vh}.frame-empty{color:var(--muted);text-align:center;padding:2rem}
+.frame-wrap{background:#000;border:1px solid var(--border);border-radius:12px;min-height:280px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.frame-wrap img{max-width:100%;max-height:50vh}.frame-empty{color:var(--muted);text-align:center;padding:2rem}
 .people-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:.75rem;margin-top:.75rem}
 .person-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer}
 .person-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px #2dd4bf44}
@@ -160,7 +160,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const state={mode:"demo",cameras:[],profiles:[],selected:new Set(),wiz:0,job:null};
 function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2800)}
-async function api(path,opts={}){try{const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.statusText);return await r.json()}catch(e){return path.startsWith("/api/")?null:Promise.reject(e)}}
+async function api(path,opts={}){try{const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.statusText);return await r.json()}catch(e){if(path.startsWith("/api/"))return null;throw e}}
 function showWiz(step){state.wiz=step;$("#setup-overlay").classList.remove("hidden");
 [0,1,2].forEach(i=>{$(`#wiz-step${i}`).classList.toggle("hidden",i!==step);$(`#sd${i}`).classList.toggle("on",i<=step)})}
 function hideWiz(){$("#setup-overlay").classList.add("hidden")}
@@ -171,7 +171,7 @@ if(s.setup&&!s.setup.configured)showWiz(0);
 const reid=s.reid?.label||"";
 $(".dot").className="dot "+(state.mode==="live"?"live":"demo");
 $("#status-label").textContent=state.mode==="live"?`Live · ${s.device||""} · ${reid}`:`Demo · ${reid}`;
-}else{state.cameras=DEMO.cameras;state.profiles=DEMO.profiles;showWiz(0);
+}else{state.cameras=(typeof DEMO!=="undefined"&&DEMO.cameras)||[];state.profiles=(typeof DEMO!=="undefined"&&DEMO.profiles)||[];showWiz(0);
 $(".dot").className="dot demo";$("#status-label").textContent="Demo mode"}
 const vs=$("#video-path");vs.innerHTML="";
 state.cameras.forEach(c=>{const o=document.createElement("option");o.value=c.path||`data/cameras/${c.name}/${c.sample||""}`;o.textContent=c.sample?`${c.name} · ${c.sample}`:c.name;if((c.sample||"").includes("Hookah")||c.name.includes("hookah"))o.selected=true;vs.appendChild(o)});
@@ -181,16 +181,13 @@ $("#wiz-next0").onclick=()=>showWiz(1);
 $("#wiz-skip").onclick=()=>hideWiz();
 $("#wiz-next1").onclick=()=>{if(!$("#setup-host").value.trim()){toast("Enter host IP");return}showWiz(2)};
 $("#wiz-test").onclick=async()=>{
-  // save first so test uses current fields
   const body={host:$("#setup-host").value.trim(),username:$("#setup-user").value.trim(),password:$("#setup-pass").value,timezone:$("#setup-tz")?.value||"America/Chicago",nvr_type:$("#setup-type").value,port:$("#setup-port").value||undefined,source_mode:"nvr"};
   await api("/api/setup",{method:"POST",body:JSON.stringify(body)});
   $("#test-result").textContent="Testing…";
   const res=await api("/api/test_nvr",{method:"POST",body:"{}"});
   if(!res){$("#test-result").textContent="Server offline";return}
-  if(res.ok){
-    const miss=(res.mapped_missing||[]).length;
-    $("#test-result").textContent=`OK — ${res.count} cameras`+(miss?` · ${miss} mapped names missing in Protect`:" · mapped cams found");
-  }else{$("#test-result").textContent="Failed: "+(res.error||"unknown")}
+  if(res.ok){const miss=(res.mapped_missing||[]).length;$("#test-result").textContent=`OK — ${res.count} cameras`+(miss?` · ${miss} mapped names missing`:" · mapped cams found")}
+  else{$("#test-result").textContent="Failed: "+(res.error||"unknown")}
 };
 $("#wiz-save").onclick=async()=>{const body={host:$("#setup-host").value.trim(),username:$("#setup-user").value.trim(),password:$("#setup-pass").value,timezone:$("#setup-tz").value,nvr_type:$("#setup-type").value,port:$("#setup-port").value||undefined,source_mode:"nvr"};
 const res=await api("/api/setup",{method:"POST",body:JSON.stringify(body)});
@@ -203,7 +200,7 @@ $$(".tab").forEach(t=>t.onclick=()=>showTab(t.dataset.tab));
 $("#btn-tag").onclick=async()=>{const btn=$("#btn-tag");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';
 const video=$("#video-path").value,at=$("#tag-at").value||"5";
 let session=await api("/api/tag",{method:"POST",body:JSON.stringify({video,at})});
-if(!session){const canvas=document.createElement("canvas");const people=DEMO.tagPeople.map(p=>({...p,crop_b64:drawDemoCrop(p)}));session={at_s:+at||5,overview_b64:drawDemoFrame(canvas,DEMO.tagPeople),num_people:people.length,people,demo:true};toast("Demo tag")}
+if(!session){toast("Tag failed (need live pipeline + clip)");btn.disabled=false;btn.textContent="Detect people";return}
 state.selected=new Set();
 $("#tag-meta").textContent=session.num_people+" people @ "+session.at_s+"s";
 const img=$("#overview-img");img.src=session.overview_b64.startsWith("data:")?session.overview_b64:"data:image/jpeg;base64,"+session.overview_b64;img.classList.remove("hidden");$("#frame-empty").classList.add("hidden");
@@ -213,39 +210,35 @@ $("#enroll-box").classList.remove("hidden");btn.disabled=false;btn.textContent="
 $("#btn-enroll").onclick=async()=>{if(!state.selected.size)return toast("Pick at least one person");const name=$("#enroll-name").value.trim();if(!name)return toast("Enter a name");
 const role=$("#enroll-role").value.trim();const picks=[...state.selected];
 const live=await api("/api/enroll",{method:"POST",body:JSON.stringify({video:$("#video-path").value,at:$("#tag-at").value,picks,name,role})});
-if(live){state.profiles=live.profiles;toast(`Enrolled ${name} (${live.crops||picks.length} crops)`)}else{if(!state.profiles.find(p=>(p.name||p)===name))state.profiles.push({name,role});DEMO.trails[name]={name,num_appearances:5,strong:3,possible:2,appearances:DEMO.trails.Marcus.appearances.slice(0,5)};toast("Demo enrolled "+name)}
+if(live){state.profiles=live.profiles;toast(`Enrolled ${name} (${live.crops||picks.length} crops)`)}else toast("Enroll failed");
 $("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("");$("#search-profile").value=name};
 function setProg(show,msg,cur,total,detail){
   const box=$("#search-progress");box.classList.toggle("hidden",!show);
   if(!show)return;
   $("#prog-msg").textContent=msg||"Working…";
   $("#prog-detail").textContent=detail||((total?`${cur||0} / ${total}`:""));
-  const pct=total?Math.min(100,Math.round(100*(cur||0)/total)): (msg.includes("Match")?90:30);
+  const pct=total?Math.min(100,Math.round(100*(cur||0)/total)): (String(msg).includes("Match")?90:30);
   $("#prog-fill").style.width=pct+"%";
 }
 async function pollJob(jobId){
+  state.job=jobId;
   for(;;){
     const job=await api("/api/jobs/"+jobId);
     if(!job)throw new Error("Lost job");
     setProg(true,job.message,job.current,job.total,job.detail);
-    if(job.status==="done"){
-      const trail=await api("/api/jobs/"+jobId+"/result");
-      setProg(false);return trail;
-    }
-    if(job.status==="error"){setProg(false);throw new Error(job.error||"Search failed")}
+    if(job.status==="done"){const trail=await api("/api/jobs/"+jobId+"/result");setProg(false);state.job=null;return trail}
+    if(job.status==="error"||job.status==="cancelled"){setProg(false);state.job=null;throw new Error(job.error||job.status)}
     await new Promise(r=>setTimeout(r,900));
   }
 }
+window.pollJob=pollJob;window.renderTrail=renderTrail;window.boot=boot;window.api=api;window.toast=toast;window.state=state;
 $("#btn-search").onclick=async()=>{const profile=$("#search-profile").value,start=$("#search-start").value||"20:00",end=$("#search-end").value||"03:00",source=($("#search-source")&&$("#search-source").value)||"nvr";
 const btn=$("#btn-search");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';showTab("search");setProg(true,"Starting…",0,1,"");
 try{
   let trail=null;
   const started=await api("/api/search/start",{method:"POST",body:JSON.stringify({profile,start,end,source})});
   if(started&&started.job_id){trail=await pollJob(started.job_id)}
-  else{
-    trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end,source})});
-    if(!trail){trail={...(DEMO.trails[profile]||{name:profile,num_appearances:0,appearances:[]}),window:{start,end},source_mode:source,demo:true};toast("Demo trail")}
-  }
+  else{trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end,source})});if(!trail)toast("Search failed")}
   if(trail)renderTrail(trail);
 }catch(e){toast(String(e.message||e));setProg(false)}
 btn.disabled=false;btn.textContent="Search all cameras"};
@@ -253,22 +246,22 @@ function hms(s){s=Math.max(0,Math.floor(s||0));const m=Math.floor(s/60),sec=s%60
 function renderTrail(trail){const box=$("#trail-results");if(!trail.num_appearances){box.innerHTML='<div class="empty-state"><strong>No appearances</strong></div>';return}
 const cams={};trail.appearances.forEach(a=>cams[a.camera]=(cams[a.camera]||0)+1);
 const name=trail.name;
-box.innerHTML=`<h2>${name}</h2><div class="meta">${trail.demo?"Demo · ":""}${trail.source_mode?trail.source_mode+" · ":""}${trail.window?.start||""} → ${trail.window?.end||""}</div>
+box.innerHTML=`<h2>${name}</h2><div class="meta">${trail.source_mode?trail.source_mode+" · ":""}${trail.window?.start||""} → ${trail.window?.end||""}</div>
 <div class="trail-summary">
 <div class="stat"><div class="v">${trail.num_appearances}</div><div class="k">Appearances</div></div>
 <div class="stat"><div class="v">${trail.strong??"—"}</div><div class="k">Strong</div></div>
 <div class="stat"><div class="v">${trail.possible??"—"}</div><div class="k">Possible</div></div>
-<div class="stat"><div class="v">${Object.keys(cams).length}</div><div class="k">Cameras</div></div>
-</div>
+<div class="stat"><div class="v">${Object.keys(cams).length}</div><div class="k">Cameras</div></div></div>
 <div>${Object.entries(cams).map(([c,n])=>`<span class="chip"><strong>${c}</strong> · ${n}</span>`).join("")}</div>
 <div style="margin-top:1rem">${trail.appearances.map((a,i)=>{
   const tier=a.confidence||(a.score>=0.65?"strong":a.score>=0.5?"possible":"weak");
   const clip=a.clip?`<div class="clipbox"><video controls preload="none" src="/media/trails/${encodeURIComponent(name)}/${a.clip}"></video></div>`:"";
   return `<div class="appear"><div class="num">${i+1}</div><div><div class="cam">${a.camera}</div><div class="when">${hms(a.start_s)} → ${hms(a.end_s)}</div>${clip}</div><div><span class="tier ${tier}">${tier}</span><div class="when" style="text-align:right;margin-top:.25rem">${(a.score||0).toFixed(2)}</div></div></div>`;
 }).join("")}</div>`}
-async function loadTrails(){let trails=await api("/api/trails");if(!trails)trails=Object.values(DEMO.trails).map(t=>({name:t.name,num_appearances:t.num_appearances,strong:t.strong,possible:t.possible}));
-const box=$("#trails-list");box.innerHTML=trails.map(t=>`<div class="card" style="cursor:pointer;margin-bottom:.5rem" data-t="${t.name}"><strong>${t.name}</strong> · ${t.num_appearances??"—"} appearances${t.strong!=null?` · ${t.strong} strong`:""}</div>`).join("")||'<div class="empty-state">No trails yet</div>';
-$$("[data-t]").forEach(el=>el.onclick=async()=>{let trail=await api("/api/trails/"+el.dataset.t);if(!trail)trail=DEMO.trails[el.dataset.t];if(trail){renderTrail(trail);showTab("search")}})}
+async function loadTrails(){let trails=await api("/api/trails");const box=$("#trails-list");
+box.innerHTML=(trails||[]).map(t=>`<div class="card" style="cursor:pointer;margin-bottom:.5rem" data-t="${t.name}"><strong>${t.name}</strong> · ${t.num_appearances??"—"} appearances</div>`).join("")||'<div class="empty-state">No trails yet</div>';
+$$("[data-t]").forEach(el=>el.onclick=async()=>{let trail=await api("/api/trails/"+el.dataset.t);if(trail){renderTrail(trail);showTab("search")}})}
 boot();
 </script>
+<script src="ux-hooks.js"></script>
 </body></html>

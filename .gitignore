@@ -4,6 +4,7 @@ __pycache__/
 venv/
 env/
 .env
+.unifi.env
 data/
 *.mp4
 *.mkv

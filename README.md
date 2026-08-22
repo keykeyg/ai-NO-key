@@ -1,93 +1,68 @@
 # AI No Key — **mac** branch
 
-Tag someone. Search a time window. Get every appearance across cameras.
-
-Apple Silicon (MPS). 32GB+ recommended.
+Tag someone in one frame. Search every camera **8pm–3am**. Apple Silicon (MPS).
 
 ---
 
-## The loop you wanted
+## For your brother (easiest)
 
-```bash
-git pull
-# still on branch mac
-
-# 1) Tag a person in a frame (opens numbered crops)
-python scripts/tag_person.py \
-  --video "data/cameras/test_cam/yourclip.mp4" \
-  --at 5
-
-# 2) Enroll the one you picked
-python scripts/tag_person.py \
-  --video "data/cameras/test_cam/yourclip.mp4" \
-  --at 5 --pick 0 --name Marcus --role hookah
-
-# 3) Find them in a time period (uses detection cache)
-python scripts/search_person.py --profile Marcus --start 21:00 --end 03:00
-```
-
-Open `data/output/trails/Marcus/report.html`.
-
-`--end 03:00` after `--start 21:00` wraps overnight.
-
----
-
-## Pull last night from UniFi Protect
-
-Edit `config.yaml` → `nvr.host` + camera name map. Credentials via env is safer:
-
-```bash
-export UNIFI_HOST=192.168.1.1
-export UNIFI_USERNAME=admin
-export UNIFI_PASSWORD='...'
-
-python scripts/pull_nvr.py --start "2026-08-21 21:00" --end "2026-08-22 03:00"
-python scripts/process_night.py --config config.yaml --force
-python scripts/search_person.py --profile Marcus --start 21:00 --end 03:00
-```
-
-Frigate: set `nvr.type: frigate` and `nvr.port: 5000`.
-
----
-
-## Web UI (tag + search + trails)
-
-Portable local UI — no Xcode, works on Mac and Windows.
-
-```bash
-python scripts/serve_ui.py
-# open http://127.0.0.1:8787
-```
-
-1. **Tag** — pick a clip + timestamp → numbered people → enroll
-2. **Search** — profile + `21:00`–`03:00` → Person Trail across cameras
-3. **Trails** — open any saved night
-
-If YOLO/torch aren’t importable the UI still loads in **demo mode** with sample bar data.
-When your venv is active and detections are cached, the same UI drives the real pipeline.
-
----
-
-## Setup
+One-time setup:
 
 ```bash
 git clone -b mac https://github.com/keykeyg/ai-NO-key.git
 cd ai-NO-key
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp config.example.yaml config.yaml
+chmod +x "AI No Key.command"
+```
+
+Every night after that:
+
+1. **Double-click** `AI No Key.command` (Browser opens)
+2. First launch → setup wizard (UniFi IP, user, password, timezone)
+3. **Tag** a person → **Search all cameras** `20:00`–`03:00`
+
+Password is saved only on that Mac in `.unifi.env` (gitignored). Not in GitHub.
+
+---
+
+## Web UI
+
+```bash
+# or double-click AI No Key.command
+python scripts/serve_ui.py
+# http://127.0.0.1:8787
+```
+
+| Tab | What |
+|-----|------|
+| Tag | One frame → number people → enroll |
+| Search | Profile + time window → trail across cameras |
+| Trails | Open saved nights |
+| ⚙ | Re-open setup (UniFi / Frigate) |
+
+---
+
+## CLI (same pipeline)
+
+```bash
+python scripts/tag_person.py --video "data/cameras/hookah/clip.mp4" --at 5
+python scripts/tag_person.py --video "data/cameras/hookah/clip.mp4" --at 5 --pick 0 --name Marcus --role hookah
+python scripts/search_person.py --profile Marcus --start 20:00 --end 03:00
+```
+
+Pull night from Protect:
+
+```bash
+# after setup wizard, or:
+export UNIFI_HOST=... UNIFI_USERNAME=... UNIFI_PASSWORD=...
+python scripts/pull_nvr.py --start "2026-08-21 20:00" --end "2026-08-22 03:00"
+python scripts/process_night.py --config config.yaml --force
 ```
 
 ---
 
-## Other useful flags
+## Notes
 
-```bash
-# Relative seconds instead of wall clock
-python scripts/search_person.py --profile Marcus --start-s 0 --end-s 600
-
-# Seed from an existing local track
-python scripts/follow_person.py --seed-camera test_cam --seed-track 1 --name smoke_test --start-s 0 --end-s 120
-```
-
-Protect-style filenames (`...-Aug 21, 11:33 PM - Aug 21, 11:35 PM.mp4`) are parsed so `--start 23:33` maps to wall clock.
+- Real DMG / App Store app would still wrap this Python stack (YOLO + MPS). Double-click `.command` is the practical Mac distribution for now.
+- `config.yaml` and `.unifi.env` stay local (gitignored).

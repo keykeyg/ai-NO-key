@@ -5,22 +5,24 @@ from typing import List, Optional
 
 from ultralytics import YOLO
 
+from .device import resolve_device
+
 logger = logging.getLogger(__name__)
 
 
 class PersonDetector:
     def __init__(
         self,
-        model_name: str = "yolo11m.pt",
+        model_name: str = "yolo11s.pt",
         conf: float = 0.4,
         classes: Optional[List[int]] = None,
-        device: str = "0",
+        device: str = "mps",
     ):
         self.model = YOLO(model_name)
         self.conf = conf
         self.classes = classes if classes is not None else [0]
-        self.device = device
-        logger.info("Loaded detector %s on device %s", model_name, device)
+        self.device = resolve_device(device)
+        logger.info("Loaded detector %s on device %s", model_name, self.device)
 
     def track(self, source, tracker: str = "bytetrack.yaml", persist: bool = True, stream: bool = True, **kwargs):
         return self.model.track(

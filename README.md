@@ -1,29 +1,32 @@
-# AI No Key
+# AI No Key — **mac** branch
 
-**Track one staff member across 30+ bar cameras for an entire night.**
+Apple Silicon optimized build (M-series MacBook Pro, 32GB+ recommended).
 
-Seed → Follow pipeline: enroll a manager/bartender/hookah lead (or pick an early appearance), process the night offline on a 3090, get a continuous Person Trail with ordered clips.
-
-Built as a stronger alternative to UniFi Protect AI Key for crowded, dark bar conditions.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for design + UniFi research notes.
+Uses **MPS** for YOLO, lighter defaults (`yolo11s`, `frame_skip: 3`), and auto device resolution so CUDA settings are not required.
 
 ---
 
-## Install
+## Setup (Mac)
 
 ```bash
-git clone https://github.com/keykeyg/ai-NO-key.git
+git clone -b mac https://github.com/keykeyg/ai-NO-key.git
 cd ai-NO-key
-python -m venv .venv && source .venv/bin/activate
+
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# OSNet (strongly recommended)
+# OSNet (recommended; may fall back to CPU/enhanced on Mac)
 bash scripts/setup_reid.sh
-# or: pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
 
 cp config.example.yaml config.yaml
-# Edit camera names + topology to match your bars
+# Edit topology camera names to match your folders
+```
+
+Verify MPS:
+
+```bash
+python -c "import torch; print('mps', torch.backends.mps.is_available())"
 ```
 
 ---
@@ -31,56 +34,34 @@ cp config.example.yaml config.yaml
 ## Workflow
 
 ```bash
-# 1. Enroll staff (person-cropped automatically)
-python scripts/enroll_staff.py --name Marcus --role manager --images m1.jpg m2.jpg m3.jpg
-
-# 2. Full night detection (cached)
+python scripts/enroll_staff.py --name Marcus --role manager --images m1.jpg m2.jpg
 python scripts/process_night.py --config config.yaml
-
-# 3. Follow that person (uses cache — fast)
 python scripts/follow_person.py --profile Marcus
-
-# 4. Open the trail
-# data/output/trails/Marcus/report.html
 ```
 
-Seed from a live early track instead of a profile:
-
-```bash
-python scripts/follow_person.py --seed-camera bar_main --seed-track 12 --name Marcus
-```
-
-Re-run YOLO only when needed:
-
-```bash
-python scripts/follow_person.py --profile Marcus --force-detect
-```
+Open `data/output/trails/Marcus/report.html`.
 
 ---
 
-## What is implemented
+## Mac notes
 
-| Piece | Status |
-|-------|--------|
-| Staff enrollment + person crop | Done |
-| YOLO + ByteTrack per camera | Done |
-| OSNet body ReID (torchreid) | Done (falls back if missing) |
-| InsightFace face path | Ready (`face_backend: insightface`) |
-| Detection cache | Done |
-| Seed → Follow matcher + gap penalty | Done |
-| Camera topology validation | Done |
-| Person Trail + clips + HTML | Done |
+| Setting | Mac default | Why |
+|---------|-------------|-----|
+| `model` | `yolo11s.pt` | Faster on MPS than `yolo11m` |
+| `frame_skip` | `3` | Overnight still accurate, less work |
+| `device` | `mps` | Apple GPU |
+| OSNet | try MPS/CPU | torchreid is CUDA-first; auto-fallback exists |
 
----
+If a night is too slow, raise `frame_skip` to `4` or use `yolo11n.pt`.
 
-## Config tips for a busy bar
-
-- Set `topology.cameras` and `transitions` to your real layout — this is a major accuracy lever.
-- Keep `face_backend: none` until InsightFace is installed and tested.
-- `body_method: osnet` is the default. If torchreid is not installed it automatically uses the hand-crafted fallback.
+32GB unified memory is enough because cameras are processed **one at a time**.
 
 ---
 
-## License
+## Branches
 
-Private.
+| Branch | For |
+|--------|-----|
+| `mac` | Apple Silicon (this branch) |
+| `windows` | NVIDIA CUDA (3090 etc.) |
+| `main` | Shared base |

@@ -7,6 +7,7 @@ from typing import Any, Dict
 from .cache import DetectionCache
 from .clips import extract_person_clips
 from .detector import PersonDetector
+from .device import resolve_device
 from .matcher import SeedMatcher
 from .profiles import ProfileStore
 from .reid import MultiModalEmbedder
@@ -22,23 +23,26 @@ class OvernightPipeline:
         self.cfg = config
         self.output_dir = ensure_dir(config["output_dir"])
 
+        reid_cfg = config.get("reid", {})
+        device = resolve_device(reid_cfg.get("device") or config.get("device") or "mps")
+
         self.detector = PersonDetector(
-            model_name=config.get("model", "yolo11m.pt"),
+            model_name=config.get("model", "yolo11s.pt"),
             conf=config.get("conf", 0.4),
             classes=config.get("classes", [0]),
+            device=device,
         )
         self.camera_tracker = CameraTracker(
             detector=self.detector,
             tracker_cfg=config.get("tracker", "bytetrack.yaml"),
-            frame_skip=config.get("frame_skip", 2),
+            frame_skip=config.get("frame_skip", 3),
             save_crops=True,
         )
-        reid_cfg = config.get("reid", {})
         self.embedder = MultiModalEmbedder(
             body_method=reid_cfg.get("body_method", "osnet"),
             face_backend=reid_cfg.get("face_backend", "none"),
             face_weight=reid_cfg.get("face_weight", 0.15),
-            device=reid_cfg.get("device", "cuda"),
+            device=device,
         )
         self.topology = CameraTopology(config.get("topology", {}))
         self.profiles = ProfileStore(config.get("profiles_dir", "data/profiles"), self.embedder)
@@ -164,13 +168,10 @@ class OvernightPipeline:
                 a["clip"] = f"clips/{c['clip']}" if c.get("clip") else None
 
         save_json(report, trail_dir / "person_trail.json")
-
-        # Auto-write HTML + MD report
         try:
             from scripts.export_report import write_trail_reports
             write_trail_reports(report, trail_dir)
         except Exception:
-            # fallback inline if import path differs
             pass
 
         logger.info("Wrote trail → %s", trail_dir)

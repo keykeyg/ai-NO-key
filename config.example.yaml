@@ -1,0 +1,48 @@
+# AI No Key - Overnight multi-camera tracking config
+
+# Path to the root folder that contains one subfolder per camera
+# Example structure:
+#   data/cameras/
+#     cam_front/
+#       2026-08-20.mp4
+#     cam_bar/
+#       2026-08-20.mp4
+#     ...
+cameras_root: "data/cameras"
+
+# Output directory for results
+output_dir: "data/output"
+
+# YOLO model (will auto-download on first run)
+# Options: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt
+# For 3090 overnight jobs, yolo11m or yolo11l is a good balance
+model: "yolo11m.pt"
+
+# Only track the person class
+classes: [0]
+
+# Confidence threshold
+conf: 0.4
+
+# Tracker (bytetrack.yaml is faster, botsort.yaml is more accurate)
+tracker: "bytetrack.yaml"
+
+# How many frames to skip between detections (1 = every frame)
+# Higher = faster, lower accuracy. 2-3 is usually fine overnight.
+frame_skip: 2
+
+# Maximum number of cameras to process in parallel (keep low on one GPU)
+max_parallel_cameras: 2
+
+# ReID settings
+reid:
+  enabled: true
+  # Simple appearance features for now (can be upgraded to full OSNet later)
+  method: "simple"          # "simple" | "osnet" (osnet needs extra setup)
+  match_threshold: 0.55     # cosine similarity for cross-camera matching
+  max_time_gap_seconds: 300 # only match tracks that could reasonably be the same person
+
+# Logging
+log_level: "INFO"
+save_annotated_videos: false   # set true if you want full annotated MP4s (slow + disk heavy)
+save_track_clips: true         # short clips of each track (recommended)

@@ -1,60 +1,88 @@
 #!/bin/bash
-# AI No Key — first-run installer for Mac (you + brother)
-# Double-click once. Sets up venv, deps, OSNet, and the daily launcher.
+# Night Trail — first-run installer for Mac (Apple Silicon preferred)
 cd "$(dirname "$0")"
 set -e
 
 clear 2>/dev/null || true
 echo "========================================"
-echo "  AI No Key — Mac Installer"
+echo "  Night Trail — Mac Installer"
 echo "  Strongest person ReID (OSNet)"
 echo "========================================"
 echo ""
 
-# Need Python 3.10+
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "Python 3 is required. Install from python.org or:"
+# Prefer Apple Silicon Homebrew Python 3.11 (avoid Intel /usr/local python)
+PY=""
+for candidate in \
+  /opt/homebrew/bin/python3.11 \
+  /opt/homebrew/bin/python3.12 \
+  /opt/homebrew/bin/python3 \
+  /usr/bin/python3
+do
+  if [ -x "$candidate" ]; then
+    # Skip x86_64 binaries on Apple Silicon when possible
+    arch=$("$candidate" -c 'import platform; print(platform.machine())' 2>/dev/null || echo unknown)
+    if [ "$arch" = "arm64" ] || [ "$candidate" = "/usr/bin/python3" ]; then
+      PY="$candidate"
+      break
+    fi
+  fi
+done
+
+if [ -z "$PY" ]; then
+  echo "No usable Python found."
+  echo "Install Apple Silicon Python:"
   echo "  brew install python@3.11"
   echo ""
   read -r -p "Press Return to close..."
   exit 1
 fi
 
-PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-echo "Found Python $PYVER"
+echo "Using: $PY"
+"$PY" -c 'import sys; print(f"Python {sys.version_info.major}.{sys.version_info.minor}  ({sys.platform})")'
 echo ""
 
-# Create venv
 if [ ! -x ".venv/bin/python" ]; then
-  echo "[1/4] Creating virtual environment..."
-  python3 -m venv .venv
+  echo "[1/5] Creating virtual environment..."
+  "$PY" -m venv .venv
 else
-  echo "[1/4] Virtual environment already exists"
+  echo "[1/5] Virtual environment already exists"
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
 echo ""
-echo "[2/4] Installing core packages (this can take a few minutes)..."
+echo "[2/5] Upgrading pip..."
 python -m pip install -U pip setuptools wheel
+
+echo ""
+echo "[3/5] Core packages (numpy pinned for ultralytics)..."
+python -m pip install "numpy>=1.24,<2.0"
 python -m pip install -r requirements.txt
+python -m pip install "numpy>=1.24,<2.0"
 
 echo ""
-echo "[3/4] Installing OSNet (strongest body model for dark bars / black shirts)..."
-bash scripts/setup_reid.sh || true
+echo "[4/5] OSNet (Cython + tensorboard required for torchreid build)..."
+python -m pip install Cython tensorboard
+python -m pip install --no-build-isolation "git+https://github.com/KaiyangZhou/deep-person-reid.git" || {
+  echo ""
+  echo "WARNING: OSNet install failed — body ReID will use weak fallback."
+  echo "You can retry later with scripts/setup_reid.sh"
+}
 
 echo ""
-echo "[4/4] Making launchers double-clickable..."
-chmod +x "AI No Key.command" 2>/dev/null || true
-chmod +x "Install AI No Key.command" 2>/dev/null || true
-chmod +x scripts/setup_reid.sh 2>/dev/null || true
-
-# Seed config from example if missing
+echo "[5/5] Permissions + config..."
+chmod +x "AI No Key.command" "Install AI No Key.command" scripts/*.sh 2>/dev/null || true
 if [ ! -f config.yaml ] && [ -f config.example.yaml ]; then
   cp config.example.yaml config.yaml
-  echo "Created config.yaml from example (edit host / cameras as needed)"
+  echo "Created config.yaml from example"
 fi
 
+echo ""
+if python -c "from torchreid.utils import FeatureExtractor" 2>/dev/null; then
+  echo "OSNet: READY"
+else
+  echo "OSNet: MISSING (weak fallback)"
+fi
 echo ""
 echo "========================================"
 echo "  Install complete"
@@ -62,9 +90,9 @@ echo "========================================"
 echo ""
 echo "Next:"
 echo "  1. Double-click  AI No Key.command"
-echo "  2. First-run wizard → UniFi host / user / password"
-echo "  3. Tag a person → Search 20:00 to 03:00"
+echo "  2. Wizard → UniFi host (live UNVR IP) / user / password"
+echo "  3. Test connection → small sample search"
 echo ""
-echo "OSNet is the body model. NVR pull is the default source."
+echo "Full guide: BROTHER_SETUP.md"
 echo ""
 read -r -p "Press Return to close..."

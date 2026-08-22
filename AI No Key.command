@@ -1,8 +1,7 @@
 #!/bin/bash
-# AI No Key — daily double-click launcher (Mac)
+# Night Trail — daily double-click launcher (Mac)
 cd "$(dirname "$0")"
 
-# Prefer project venv
 if [ -x ".venv/bin/python" ]; then
   PY=".venv/bin/python"
 elif [ -x "venv/bin/python" ]; then
@@ -10,12 +9,12 @@ elif [ -x "venv/bin/python" ]; then
 else
   echo "Not installed yet."
   echo "Double-click  Install AI No Key.command  first (one time)."
+  echo "Or open BROTHER_SETUP.md"
   echo ""
   read -r -p "Press Return to close..."
   exit 1
 fi
 
-# Load UniFi secrets if present
 if [ -f ".unifi.env" ]; then
   set -a
   # shellcheck disable=SC1091
@@ -23,7 +22,6 @@ if [ -f ".unifi.env" ]; then
   set +a
 fi
 
-# Quick OSNet status (non-fatal)
 if "$PY" -c "from torchreid.utils import FeatureExtractor" 2>/dev/null; then
   REID="OSNet ready"
 else
@@ -35,7 +33,7 @@ URL="http://127.0.0.1:${PORT}"
 
 (sleep 1.2 && open "$URL") &
 
-echo "AI No Key"
+echo "Night Trail"
 echo "  $URL"
 echo "  $REID"
 echo "  Ctrl+C to stop"

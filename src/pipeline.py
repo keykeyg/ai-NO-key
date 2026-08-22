@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
+from .audit import log_search
 from .cache import DetectionCache
 from .clips import extract_person_clips
 from .detector import PersonDetector
@@ -19,13 +20,14 @@ from .utils import ensure_dir, list_camera_videos, save_json
 
 logger = logging.getLogger(__name__)
 
+ProgressCb = Optional[Callable[[str, int, int, str], None]]
+
 
 class OvernightPipeline:
     def __init__(self, config: Dict[str, Any]):
         self.cfg = config
         self.output_dir = ensure_dir(config["output_dir"])
         self.tz_name = config.get("timezone") or "America/Chicago"
-        # Default source: nvr (pull only the window). local = use dropped clips.
         self.source_mode = (config.get("source_mode") or "nvr").lower()
 
         reid_cfg = config.get("reid", {})
@@ -69,10 +71,8 @@ class OvernightPipeline:
         start: str,
         end: str,
         cameras: Optional[list] = None,
+        progress: ProgressCb = None,
     ) -> Dict[str, list]:
-        """Pull only the requested time window from UniFi/Frigate into cameras_root.
-        Returns {folder: [Path, ...]} of written clips.
-        """
         from .nvr import export_range, NvrError
 
         logger.info("NVR pull %s → %s (source_mode=nvr)", start, end)
@@ -81,6 +81,7 @@ class OvernightPipeline:
                 self.cfg, start, end,
                 cameras=cameras,
                 out_root=self.cfg.get("cameras_root") or "data/cameras",
+                progress=progress,
             )
         except NvrError as e:
             raise RuntimeError(f"NVR pull failed: {e}") from e
@@ -88,7 +89,12 @@ class OvernightPipeline:
         logger.info("NVR pulled %d clips across %d cameras", total, len(written))
         return written
 
-    def run_detection(self, force: bool = False, cameras_root: Optional[str] = None) -> Dict[str, Any]:
+    def run_detection(
+        self,
+        force: bool = False,
+        cameras_root: Optional[str] = None,
+        progress: ProgressCb = None,
+    ) -> Dict[str, Any]:
         if not force and self.cache.exists() and cameras_root is None:
             loaded = self.cache.load_all()
             if loaded is not None:
@@ -105,8 +111,12 @@ class OvernightPipeline:
 
         all_tracks: Dict[str, Dict[int, Track]] = {}
         all_embeddings: Dict[str, Dict[int, dict]] = {}
+        items = list(cameras.items())
+        total = max(len(items), 1)
 
-        for cam_name, videos in cameras.items():
+        for i, (cam_name, videos) in enumerate(items, 1):
+            if progress:
+                progress("detect", i, total, cam_name)
             cam_tracks: Dict[int, Track] = {}
             id_offset = 0
             for video in videos:
@@ -139,8 +149,8 @@ class OvernightPipeline:
             }
             save_json(summary, self.output_dir / "per_camera" / f"{cam_name}.json")
 
-        total = sum(len(t) for t in all_tracks.values())
-        self.cache.save_meta(list(cameras.keys()), total)
+        total_tracks = sum(len(t) for t in all_tracks.values())
+        self.cache.save_meta(list(cameras.keys()), total_tracks)
         return {"tracks": all_tracks, "embeddings": all_embeddings, "cameras": list(cameras.keys())}
 
     def apply_window(
@@ -179,29 +189,52 @@ class OvernightPipeline:
         source: Optional[str] = None,
         force_detect: bool = False,
         cameras: Optional[list] = None,
+        progress: ProgressCb = None,
     ) -> Dict:
-        """High-level search: NVR pull (default) or local folders, then match profile."""
         mode = (source or self.source_mode or "nvr").lower()
+
+        def _prog(phase, cur, total, detail=""):
+            if progress:
+                progress(phase, cur, total, detail)
+
         if mode == "nvr":
             if not start or not end:
                 raise ValueError("NVR mode needs --start and --end (e.g. 20:00 03:00)")
-            # Pull only this window — not the whole night archive
-            self.pull_window_from_nvr(start, end, cameras=cameras)
-            detection = self.run_detection(force=True)  # process just-pulled clips
+            _prog("pull", 0, 1, "Connecting to NVR…")
+            self.pull_window_from_nvr(start, end, cameras=cameras, progress=progress)
+            detection = self.run_detection(force=True, progress=progress)
             detection = self.apply_window(detection, start=start, end=end, start_s=start_s, end_s=end_s)
         else:
-            detection = self.run_detection(force=force_detect)
+            detection = self.run_detection(force=force_detect, progress=progress)
             detection = self.apply_window(detection, start=start, end=end, start_s=start_s, end_s=end_s)
 
+        _prog("match", 1, 1, profile_name)
         report = self.follow_profile(profile_name, detection)
         report["window"] = detection.get("window") or {"start": start, "end": end}
         report["source_mode"] = mode
+
+        strong = sum(1 for a in report.get("appearances") or [] if a.get("confidence") == "strong")
+        possible = sum(1 for a in report.get("appearances") or [] if a.get("confidence") == "possible")
+        try:
+            log_search(
+                self.output_dir,
+                profile=profile_name,
+                start=start,
+                end=end,
+                source=mode,
+                num_appearances=report.get("num_appearances") or 0,
+                strong=strong,
+                possible=possible,
+            )
+        except Exception as e:
+            logger.debug("audit log failed: %s", e)
+
         return report
 
     def follow_profile(self, profile_name: str, detection_result: Dict) -> Dict:
         profile = self.profiles.load(profile_name)
         if profile is None:
-            raise FileNotFoundError(f"No profile named '{profile_name}'. Run tag_person.py or enroll_staff.py first.")
+            raise FileNotFoundError(f"No profile named '{profile_name}'. Tag and enroll first.")
         trail = self.matcher.follow_profile(
             profile, detection_result["tracks"], detection_result["embeddings"]
         )
@@ -254,11 +287,17 @@ class OvernightPipeline:
                 "start_s": round(app.start_s, 1),
                 "end_s": round(app.end_s, 1),
                 "score": round(app.score, 3),
+                "confidence": getattr(app, "confidence", "possible"),
             })
+
+        strong = sum(1 for a in appearances if a["confidence"] == "strong")
+        possible = sum(1 for a in appearances if a["confidence"] == "possible")
 
         report = {
             "name": trail.name,
             "num_appearances": len(appearances),
+            "strong": strong,
+            "possible": possible,
             "appearances": appearances,
         }
 

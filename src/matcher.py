@@ -23,6 +23,14 @@ def cosine(a: Optional[np.ndarray], b: Optional[np.ndarray]) -> float:
     return float(np.dot(a, b) / (na * nb))
 
 
+def confidence_tier(score: float, strong_threshold: float, match_threshold: float) -> str:
+    if score >= strong_threshold:
+        return "strong"
+    if score >= match_threshold:
+        return "possible"
+    return "weak"
+
+
 @dataclass
 class LinkedAppearance:
     camera: str
@@ -31,6 +39,7 @@ class LinkedAppearance:
     end_s: float
     score: float
     track: Track
+    confidence: str = "possible"
 
 
 @dataclass
@@ -43,13 +52,6 @@ class PersonTrail:
 
 
 class SeedMatcher:
-    """
-    Match local tracks against a seed with:
-    - gap penalty (long silences cost score)
-    - stronger score required for long / multi-hop jumps
-    - preference for high-score matches over pure earliest-time greedy
-    """
-
     def __init__(
         self,
         topology: CameraTopology,
@@ -62,7 +64,7 @@ class SeedMatcher:
         self.match_threshold = match_threshold
         self.strong_threshold = strong_threshold
         self.max_time_gap = max_time_gap
-        self.face_weight = face_weight  # keep face influence low until real face model
+        self.face_weight = face_weight
 
     def _score(
         self,
@@ -77,7 +79,6 @@ class SeedMatcher:
         if body_s < 0 and face_s < 0:
             return -1.0
 
-        # Body is primary. Face only adds a small bonus when both exist and face is strong.
         if body_s < 0:
             body_s = 0.0
         if face_s > 0.7 and self.face_weight > 0:
@@ -85,7 +86,6 @@ class SeedMatcher:
         return body_s
 
     def _gap_penalty(self, gap_seconds: float) -> float:
-        """Multiply score by this factor. Longer gaps → lower effective score."""
         if gap_seconds <= 30:
             return 1.0
         if gap_seconds <= 90:
@@ -97,7 +97,6 @@ class SeedMatcher:
         return 0.55
 
     def _required_score(self, cam_a: str, cam_b: str, gap: float) -> float:
-        """Longer / harder jumps need higher raw similarity."""
         base = self.match_threshold
         if cam_a == cam_b:
             return base
@@ -120,10 +119,7 @@ class SeedMatcher:
         name: str = "target",
     ) -> PersonTrail:
         trail = PersonTrail(name=name)
-
-        # Score every candidate once
         scored: List[Tuple[float, float, str, int, Track]] = []
-        # (effective_score, start_time, cam, lid, track)
 
         for cam, tracks in all_tracks.items():
             emb_map = all_embeddings.get(cam, {})
@@ -141,14 +137,11 @@ class SeedMatcher:
                 eff = raw * self._gap_penalty(gap_from_seed)
                 scored.append((eff, t0, cam, lid, tr))
 
-        # Prefer high score, then earlier time
         scored.sort(key=lambda x: (-x[0], x[1]))
 
         last_cam = seed_camera
         last_time = seed_time
         used = set()
-
-        # First pass: take high-confidence matches in score order, then stitch by time
         accepted: List[Tuple[float, str, int, Track, float]] = []
 
         for eff, t0, cam, lid, tr in scored:
@@ -175,7 +168,6 @@ class SeedMatcher:
             last_cam = cam
             last_time = t1
 
-        # Sort accepted by time for the final trail
         accepted.sort(key=lambda x: x[0])
         for t0, cam, lid, tr, raw in accepted:
             t0, t1 = tr.start_end()
@@ -187,6 +179,7 @@ class SeedMatcher:
                     end_s=t1,
                     score=raw,
                     track=tr,
+                    confidence=confidence_tier(raw, self.strong_threshold, self.match_threshold),
                 )
             )
 

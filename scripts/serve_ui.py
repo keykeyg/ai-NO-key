@@ -21,7 +21,7 @@ def _load_cfg(path: str = "config.yaml") -> dict:
     except Exception as e:
         logger.warning("Config: %s", e)
     return {"cameras_root": "data/cameras", "output_dir": "data/output", "profiles_dir": "data/profiles",
-            "timezone": "America/Chicago", "model": "yolo11n.pt", "device": "mps",
+            "timezone": "America/Chicago", "model": "yolo11n.pt", "device": "mps", "source_mode": "nvr",
             "reid": {"body_method": "osnet", "face_backend": "none", "device": "mps"}}
 
 CFG = _load_cfg()
@@ -53,6 +53,7 @@ def setup_status() -> dict:
     host = ""
     timezone = "America/Chicago"
     nvr_type = "unifi"
+    source_mode = CFG.get("source_mode") or "nvr"
     if configured:
         try:
             import yaml
@@ -61,6 +62,7 @@ def setup_status() -> dict:
             host = nvr.get("host") or ""
             timezone = data.get("timezone") or timezone
             nvr_type = nvr.get("type") or nvr_type
+            source_mode = data.get("source_mode") or source_mode
         except Exception:
             pass
     return {
@@ -71,6 +73,7 @@ def setup_status() -> dict:
         "timezone": timezone,
         "nvr_type": nvr_type,
         "username_set": has_secrets,
+        "source_mode": source_mode,
     }
 
 def save_setup(body: dict) -> dict:
@@ -81,6 +84,7 @@ def save_setup(body: dict) -> dict:
     timezone = (body.get("timezone") or "America/Chicago").strip()
     nvr_type = (body.get("nvr_type") or "unifi").strip().lower()
     port = int(body.get("port") or (5000 if nvr_type == "frigate" else 443))
+    source_mode = (body.get("source_mode") or "nvr").strip().lower()
 
     cfg_p = _cfg_path()
     if cfg_p.exists():
@@ -91,6 +95,7 @@ def save_setup(body: dict) -> dict:
         data = {}
 
     data["timezone"] = timezone
+    data["source_mode"] = source_mode if source_mode in ("nvr", "local") else "nvr"
     nvr = data.get("nvr") or {}
     nvr["type"] = nvr_type
     nvr["host"] = host
@@ -210,7 +215,14 @@ def api_status() -> dict:
         device = resolve_device(CFG.get("device") or (CFG.get("reid") or {}).get("device"))
     except Exception:
         pass
-    return {"mode": "live" if LIVE else "demo", "device": device, "cameras": list_cameras(), "profiles": list_profiles(), "root": str(ROOT)}
+    return {
+        "mode": "live" if LIVE else "demo",
+        "device": device,
+        "cameras": list_cameras(),
+        "profiles": list_profiles(),
+        "root": str(ROOT),
+        "source_mode": CFG.get("source_mode") or "nvr",
+    }
 
 def _b64_jpg(img) -> str:
     import cv2
@@ -269,17 +281,21 @@ def api_search(body: dict) -> dict:
     if not profile:
         raise ValueError("profile required")
     start, end = body.get("start"), body.get("end")
+    source = (body.get("source") or CFG.get("source_mode") or "nvr").lower()
     pipeline = OvernightPipeline(CFG)
-    detection = pipeline.run_detection(force=bool(body.get("force")))
-    detection = pipeline.apply_window(detection, start=start, end=end,
+    report = pipeline.search_person(
+        profile_name=profile,
+        start=start,
+        end=end,
         start_s=float(body["start_s"]) if body.get("start_s") is not None else None,
-        end_s=float(body["end_s"]) if body.get("end_s") is not None else None)
-    report = pipeline.follow_profile(profile, detection)
-    report["window"] = detection.get("window") or {"start": start, "end": end}
+        end_s=float(body["end_s"]) if body.get("end_s") is not None else None,
+        source=source,
+        force_detect=bool(body.get("force")),
+    )
     return report
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "AINoKeyUI/1.0"
+    server_version = "AINoKeyUI/1.1"
     def log_message(self, fmt, *args):
         logger.info("%s - %s", self.address_string(), fmt % args)
     def do_OPTIONS(self):
@@ -349,7 +365,7 @@ def main() -> None:
     if not WEB.exists():
         raise SystemExit(f"Missing {WEB}")
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"AI No Key UI  [{'LIVE' if LIVE else 'DEMO'}]")
+    print(f"AI No Key UI  [{'LIVE' if LIVE else 'DEMO'}]  source={CFG.get('source_mode', 'nvr')}")
     print(f"  http://{args.host}:{args.port}")
     try:
         httpd.serve_forever()

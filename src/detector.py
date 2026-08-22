@@ -5,6 +5,8 @@ from typing import List, Optional
 
 from ultralytics import YOLO
 
+from .device import resolve_device
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,8 +21,8 @@ class PersonDetector:
         self.model = YOLO(model_name)
         self.conf = conf
         self.classes = classes if classes is not None else [0]
-        self.device = device
-        logger.info("Loaded detector %s on device %s", model_name, device)
+        self.device = resolve_device(device)
+        logger.info("Loaded detector %s on device %s", model_name, self.device)
 
     def track(self, source, tracker: str = "bytetrack.yaml", persist: bool = True, stream: bool = True, **kwargs):
         return self.model.track(

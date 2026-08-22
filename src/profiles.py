@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -39,9 +39,30 @@ class StaffProfile:
         return v / (np.linalg.norm(v) + 1e-8)
 
 
-class ProfileStore:
-    """Load / save staff profiles and build the gallery."""
+def _largest_person_crop(img: np.ndarray, model_name: str = "yolo11n.pt") -> Optional[np.ndarray]:
+    """Run a quick person detector on an enrollment photo and return the largest person crop."""
+    try:
+        from ultralytics import YOLO
+        model = YOLO(model_name)
+        results = model.predict(img, classes=[0], conf=0.35, verbose=False)
+        if not results or results[0].boxes is None or len(results[0].boxes) == 0:
+            return None
+        boxes = results[0].boxes.xyxy.cpu().numpy()
+        areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+        i = int(areas.argmax())
+        x1, y1, x2, y2 = map(int, boxes[i])
+        h, w = img.shape[:2]
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(w, x2), min(h, y2)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return img[y1:y2, x1:x2].copy()
+    except Exception as e:
+        logger.warning("Enrollment person detect failed: %s — using full image", e)
+        return None
 
+
+class ProfileStore:
     def __init__(self, profiles_dir: str | Path, embedder: MultiModalEmbedder):
         self.root = ensure_dir(profiles_dir)
         self.embedder = embedder
@@ -73,8 +94,8 @@ class ProfileStore:
         image_paths: List[str | Path],
         role: str = "",
         notes: str = "",
+        detect_person: bool = True,
     ) -> StaffProfile:
-        """Create or update a staff profile from reference images."""
         face_embs = []
         body_embs = []
         kept_paths = []
@@ -88,7 +109,15 @@ class ProfileStore:
             if img is None:
                 continue
 
-            face_e, body_e = self.embedder.embed_image(img)
+            crop = img
+            if detect_person:
+                person = _largest_person_crop(img)
+                if person is not None:
+                    crop = person
+                else:
+                    logger.warning("No person detected in %s — using full image", p.name)
+
+            face_e, body_e = self.embedder.embed_image(crop)
             if body_e is not None:
                 body_embs.append(body_e.tolist())
                 kept_paths.append(str(p))

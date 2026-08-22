@@ -1,39 +1,27 @@
 # AI No Key — Configuration
-# ========================
-# Optimized for tracking specific staff across many cameras overnight.
 
-# Root folder containing one subfolder per camera
-# data/cameras/bar_main/*.mp4
-# data/cameras/hookah/*.mp4
 cameras_root: "data/cameras"
-
-# Where results, trails, and clips are written
 output_dir: "data/output"
-
-# Staff profiles live here
 profiles_dir: "data/profiles"
 
-# YOLO model — yolo11m or yolo11l recommended on 3090
 model: "yolo11m.pt"
-classes: [0]          # person only
+classes: [0]
 conf: 0.4
 tracker: "bytetrack.yaml"
-frame_skip: 2         # 1 = every frame (slower, more accurate)
+frame_skip: 2
 
-# ReID / Identity
 reid:
-  method: "multimodal"          # multimodal = face + body
-  body_method: "enhanced"       # enhanced | osnet (osnet requires extra setup)
-  face_enabled: true
-  match_threshold: 0.52         # lower = more matches (more false positives)
-  strong_match_threshold: 0.68  # high confidence links
-  max_time_gap_seconds: 420     # max gap we allow between linked appearances
+  body_method: "enhanced"       # enhanced | osnet (osnet not wired yet)
+  # Face: keep "none" until InsightFace is installed and tested
+  face_backend: "none"          # none | insightface | weak
+  face_weight: 0.15             # how much face can influence score (keep low)
+  match_threshold: 0.52
+  strong_match_threshold: 0.68
+  max_time_gap_seconds: 420
 
-# Camera topology — critical for a bar
-# List cameras and which ones people commonly move between.
 topology:
   enabled: true
-  max_transition_seconds: 180   # default max travel time between linked cameras
+  max_transition_seconds: 180
   cameras:
     - bar_main
     - bar_service
@@ -42,7 +30,6 @@ topology:
     - office
     - entrance
     - patio
-  # Plausible transitions (undirected for simplicity)
   transitions:
     bar_main: [bar_service, hookah, entrance, patio]
     bar_service: [bar_main, kitchen]
@@ -52,10 +39,7 @@ topology:
     entrance: [bar_main, hookah, patio]
     patio: [bar_main, hookah, entrance]
 
-# Clip extraction
 save_track_clips: true
 clip_padding_seconds: 1.5
 max_clip_duration: 40
-
-# Logging
 log_level: "INFO"

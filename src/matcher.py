@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 def cosine(a: Optional[np.ndarray], b: Optional[np.ndarray]) -> float:
     if a is None or b is None:
         return -1.0
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+    na = np.linalg.norm(a)
+    nb = np.linalg.norm(b)
+    if na < 1e-8 or nb < 1e-8:
+        return -1.0
+    return float(np.dot(a, b) / (na * nb))
 
 
 @dataclass
@@ -39,7 +43,12 @@ class PersonTrail:
 
 
 class SeedMatcher:
-    """Match local tracks against a seed (profile or live track)."""
+    """
+    Match local tracks against a seed with:
+    - gap penalty (long silences cost score)
+    - stronger score required for long / multi-hop jumps
+    - preference for high-score matches over pure earliest-time greedy
+    """
 
     def __init__(
         self,
@@ -47,11 +56,13 @@ class SeedMatcher:
         match_threshold: float = 0.52,
         strong_threshold: float = 0.68,
         max_time_gap: float = 420.0,
+        face_weight: float = 0.15,
     ):
         self.topology = topology
         self.match_threshold = match_threshold
         self.strong_threshold = strong_threshold
         self.max_time_gap = max_time_gap
+        self.face_weight = face_weight  # keep face influence low until real face model
 
     def _score(
         self,
@@ -60,17 +71,43 @@ class SeedMatcher:
         cand_face: Optional[np.ndarray],
         cand_body: Optional[np.ndarray],
     ) -> float:
-        face_s = cosine(seed_face, cand_face)
         body_s = cosine(seed_body, cand_body)
+        face_s = cosine(seed_face, cand_face)
 
-        # Prefer face when both are strong, otherwise lean on body
-        if face_s > 0.6 and body_s > 0.4:
-            return 0.55 * face_s + 0.45 * body_s
-        if face_s > 0.55:
-            return 0.7 * face_s + 0.3 * max(body_s, 0.0)
-        if body_s > 0.0:
-            return body_s
-        return -1.0
+        if body_s < 0 and face_s < 0:
+            return -1.0
+
+        # Body is primary. Face only adds a small bonus when both exist and face is strong.
+        if body_s < 0:
+            body_s = 0.0
+        if face_s > 0.7 and self.face_weight > 0:
+            return (1.0 - self.face_weight) * body_s + self.face_weight * face_s
+        return body_s
+
+    def _gap_penalty(self, gap_seconds: float) -> float:
+        """Multiply score by this factor. Longer gaps → lower effective score."""
+        if gap_seconds <= 30:
+            return 1.0
+        if gap_seconds <= 90:
+            return 0.95
+        if gap_seconds <= 180:
+            return 0.85
+        if gap_seconds <= 300:
+            return 0.70
+        return 0.55
+
+    def _required_score(self, cam_a: str, cam_b: str, gap: float) -> float:
+        """Longer / harder jumps need higher raw similarity."""
+        base = self.match_threshold
+        if cam_a == cam_b:
+            return base
+        if not self.topology.is_plausible(cam_a, cam_b, max(gap, 0)):
+            return self.strong_threshold
+        if gap > 180:
+            return max(base + 0.08, self.match_threshold)
+        if gap > 90:
+            return max(base + 0.04, self.match_threshold)
+        return base
 
     def follow_seed(
         self,
@@ -82,49 +119,65 @@ class SeedMatcher:
         all_embeddings: Dict[str, Dict[int, dict]],
         name: str = "target",
     ) -> PersonTrail:
-        """Build a continuous trail starting from the seed."""
         trail = PersonTrail(name=name)
-        candidates: List[Tuple[float, str, int, Track, float]] = []  # (start, cam, lid, track, score)
+
+        # Score every candidate once
+        scored: List[Tuple[float, float, str, int, Track]] = []
+        # (effective_score, start_time, cam, lid, track)
 
         for cam, tracks in all_tracks.items():
             emb_map = all_embeddings.get(cam, {})
             for lid, tr in tracks.items():
                 emb = emb_map.get(lid, {})
-                score = self._score(seed_face, seed_body, emb.get("face"), emb.get("body"))
-                if score < self.match_threshold:
+                raw = self._score(seed_face, seed_body, emb.get("face"), emb.get("body"))
+                if raw < self.match_threshold * 0.9:
                     continue
                 t0, t1 = tr.start_end()
-                # Basic temporal reasonableness from seed
-                if t1 < seed_time - 30:  # appeared well before seed — skip for forward trail
+                if t1 < seed_time - 20:
                     continue
-                gap = abs(t0 - seed_time)
-                if gap > self.max_time_gap and cam != seed_camera:
-                    # still allow strong matches
-                    if score < self.strong_threshold:
-                        continue
-                if not self.topology.is_plausible(seed_camera, cam, gap):
-                    if score < self.strong_threshold:
-                        continue
-                candidates.append((t0, cam, lid, tr, score))
+                gap_from_seed = max(0.0, t0 - seed_time)
+                if gap_from_seed > self.max_time_gap and raw < self.strong_threshold:
+                    continue
+                eff = raw * self._gap_penalty(gap_from_seed)
+                scored.append((eff, t0, cam, lid, tr))
 
-        candidates.sort(key=lambda x: x[0])
+        # Prefer high score, then earlier time
+        scored.sort(key=lambda x: (-x[0], x[1]))
 
-        # Greedy chain: prefer high score + topology + time order
         last_cam = seed_camera
         last_time = seed_time
         used = set()
 
-        for t0, cam, lid, tr, score in candidates:
+        # First pass: take high-confidence matches in score order, then stitch by time
+        accepted: List[Tuple[float, str, int, Track, float]] = []
+
+        for eff, t0, cam, lid, tr in scored:
             key = (cam, lid)
             if key in used:
                 continue
             gap = t0 - last_time
-            if gap < -5:
+            if gap < -10:
                 continue
-            if not self.topology.is_plausible(last_cam, cam, max(gap, 0)):
-                if score < self.strong_threshold:
-                    continue
+            need = self._required_score(last_cam, cam, max(gap, 0))
+            raw = self._score(
+                seed_face, seed_body,
+                all_embeddings.get(cam, {}).get(lid, {}).get("face"),
+                all_embeddings.get(cam, {}).get(lid, {}).get("body"),
+            )
+            if raw < need:
+                continue
+            if not self.topology.is_plausible(last_cam, cam, max(gap, 0)) and raw < self.strong_threshold:
+                continue
 
+            t0, t1 = tr.start_end()
+            accepted.append((t0, cam, lid, tr, raw))
+            used.add(key)
+            last_cam = cam
+            last_time = t1
+
+        # Sort accepted by time for the final trail
+        accepted.sort(key=lambda x: x[0])
+        for t0, cam, lid, tr, raw in accepted:
             t0, t1 = tr.start_end()
             trail.appearances.append(
                 LinkedAppearance(
@@ -132,13 +185,10 @@ class SeedMatcher:
                     local_id=lid,
                     start_s=t0,
                     end_s=t1,
-                    score=score,
+                    score=raw,
                     track=tr,
                 )
             )
-            used.add(key)
-            last_cam = cam
-            last_time = t1
 
         logger.info("Trail '%s': %d linked appearances", name, len(trail.appearances))
         return trail
@@ -151,7 +201,7 @@ class SeedMatcher:
     ) -> PersonTrail:
         seed_face = profile.mean_face()
         seed_body = profile.mean_body()
-        # Use earliest strong match as the effective seed time/camera
+
         best = None
         best_score = -1.0
         for cam, tracks in all_tracks.items():
@@ -162,8 +212,9 @@ class SeedMatcher:
                 if score > best_score:
                     best_score = score
                     best = (cam, tr.start_end()[0], score)
+
         if best is None or best_score < self.match_threshold:
-            logger.warning("No strong match found for profile %s", profile.name)
+            logger.warning("No strong match found for profile %s (best=%.3f)", profile.name, best_score)
             return PersonTrail(name=profile.name)
 
         seed_cam, seed_t, _ = best

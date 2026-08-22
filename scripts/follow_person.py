@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.pipeline import OvernightPipeline
-from src.utils import load_config, setup_logging, save_json
+from src.utils import load_config, setup_logging
 
 
 def main() -> None:
@@ -20,7 +20,12 @@ def main() -> None:
     parser.add_argument("--profile", help="Name of enrolled staff profile")
     parser.add_argument("--seed-camera", help="Camera of the seed track")
     parser.add_argument("--seed-track", type=int, help="Local track ID of the seed")
-    parser.add_argument("--name", default="target", help="Name to give this trail when using seed-track")
+    parser.add_argument("--name", default="target", help="Name for trail when using seed-track")
+    parser.add_argument(
+        "--force-detect",
+        action="store_true",
+        help="Ignore cache and re-run YOLO on all cameras",
+    )
     args = parser.parse_args()
 
     if not args.profile and not (args.seed_camera and args.seed_track is not None):
@@ -31,8 +36,8 @@ def main() -> None:
 
     pipeline = OvernightPipeline(cfg)
 
-    print("Running full detection + tracking pass (this can take a while)...")
-    detection = pipeline.run_detection()
+    print("Loading detections (from cache if available)...")
+    detection = pipeline.run_detection(force=args.force_detect)
 
     if args.profile:
         report = pipeline.follow_profile(args.profile, detection)
@@ -47,10 +52,11 @@ def main() -> None:
     print(f"Person          : {label}")
     print(f"Appearances     : {report['num_appearances']}")
     print(f"Trail written to: {cfg['output_dir']}/trails/{label}/")
-    for a in report.get("appearances", [])[:12]:
+    for a in report.get("appearances", [])[:15]:
         print(f"  {a['camera']:15s}  {a['start_s']:7.1f}s → {a['end_s']:7.1f}s  score={a['score']:.2f}")
-    if report['num_appearances'] > 12:
-        print(f"  ... and {report['num_appearances'] - 12} more")
+    if report["num_appearances"] > 15:
+        print(f"  ... and {report['num_appearances'] - 15} more")
+    print(f"\nOpen {cfg['output_dir']}/trails/{label}/report.html after running export_report.py")
 
 
 if __name__ == "__main__":

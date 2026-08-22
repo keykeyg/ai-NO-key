@@ -6,6 +6,11 @@ output_dir: "data/output"
 profiles_dir: "data/profiles"
 timezone: "America/Chicago"
 
+# Default search path:
+#   nvr   = pull ONLY the time window you ask for from UniFi/Frigate (preferred)
+#   local = use clips already dropped under data/cameras/
+source_mode: nvr
+
 model: "yolo11s.pt"
 classes: [0]
 conf: 0.4
@@ -22,15 +27,15 @@ reid:
   max_time_gap_seconds: 420
   device: "mps"
 
-# Pull footage: python scripts/pull_nvr.py --start 21:00 --end 03:00
+# UniFi Protect / Frigate — used when source_mode is nvr
 nvr:
   type: unifi                 # unifi | frigate
-  host: "192.168.1.1"         # Protect / UniFi OS IP
+  host: "192.168.1.1"         # Protect / UniFi OS IP (or reachable hostname)
   port: 443
-  username: ""                # or env UNIFI_USERNAME
-  password: ""                # or env UNIFI_PASSWORD
+  username: ""                # or env UNIFI_USERNAME / .unifi.env
+  password: ""                # or env UNIFI_PASSWORD / .unifi.env
   verify_ssl: false
-  chunk_minutes: 15
+  chunk_minutes: 15           # pull in 15-min pieces so you never download 90GB at once
   cameras:                    # Protect camera name → local folder
     "Downstairs Across Hookah D1": hookah
     "Bar Main": bar_main

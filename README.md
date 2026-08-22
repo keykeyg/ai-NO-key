@@ -1,12 +1,13 @@
 # AI No Key — **mac** branch
 
-Tag someone in one frame. Search every camera **8pm–3am**. Apple Silicon (MPS).
+Tag someone in one frame. Search every camera **8pm–3am**.
+
+**Default: NVR pull** — only downloads the time window you ask for (not 90GB).  
+**Backup: local drop-in** — use clips already under `data/cameras/`.
 
 ---
 
-## For your brother (easiest)
-
-One-time setup:
+## Brother (easiest)
 
 ```bash
 git clone -b mac https://github.com/keykeyg/ai-NO-key.git
@@ -16,53 +17,38 @@ pip install -r requirements.txt
 chmod +x "AI No Key.command"
 ```
 
-Every night after that:
+1. Double-click **AI No Key.command**
+2. First-run wizard → UniFi IP / user / password / timezone
+3. Tag a person → Search `20:00`–`03:00` (source = NVR pull)
 
-1. **Double-click** `AI No Key.command` (Browser opens)
-2. First launch → setup wizard (UniFi IP, user, password, timezone)
-3. **Tag** a person → **Search all cameras** `20:00`–`03:00`
+---
 
-Password is saved only on that Mac in `.unifi.env` (gitignored). Not in GitHub.
+## How search works now
+
+| Source | What it does |
+|--------|----------------|
+| **NVR** (default) | Pulls only that window from UniFi Protect / Frigate in 15-min chunks, then searches |
+| **Local** | Uses clips already dropped in `data/cameras/<cam>/` |
+
+CLI:
+
+```bash
+# NVR (default) — pulls 8pm–3am only
+python scripts/search_person.py --profile Marcus --start 20:00 --end 03:00
+
+# Local backup
+python scripts/search_person.py --profile Marcus --start 20:00 --end 03:00 --source local
+```
+
+Brother can run this from home if the Protect box is reachable (VPN / port forward / LAN).
 
 ---
 
 ## Web UI
 
 ```bash
-# or double-click AI No Key.command
-python scripts/serve_ui.py
+python scripts/serve_ui.py   # or double-click AI No Key.command
 # http://127.0.0.1:8787
 ```
 
-| Tab | What |
-|-----|------|
-| Tag | One frame → number people → enroll |
-| Search | Profile + time window → trail across cameras |
-| Trails | Open saved nights |
-| ⚙ | Re-open setup (UniFi / Frigate) |
-
----
-
-## CLI (same pipeline)
-
-```bash
-python scripts/tag_person.py --video "data/cameras/hookah/clip.mp4" --at 5
-python scripts/tag_person.py --video "data/cameras/hookah/clip.mp4" --at 5 --pick 0 --name Marcus --role hookah
-python scripts/search_person.py --profile Marcus --start 20:00 --end 03:00
-```
-
-Pull night from Protect:
-
-```bash
-# after setup wizard, or:
-export UNIFI_HOST=... UNIFI_USERNAME=... UNIFI_PASSWORD=...
-python scripts/pull_nvr.py --start "2026-08-21 20:00" --end "2026-08-22 03:00"
-python scripts/process_night.py --config config.yaml --force
-```
-
----
-
-## Notes
-
-- Real DMG / App Store app would still wrap this Python stack (YOLO + MPS). Double-click `.command` is the practical Mac distribution for now.
-- `config.yaml` and `.unifi.env` stay local (gitignored).
+Search panel has a **Source** dropdown: NVR pull vs Local drop-in.

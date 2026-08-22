@@ -1,67 +1,75 @@
 # AI No Key — **mac** branch
 
-Apple Silicon optimized build (M-series MacBook Pro, 32GB+ recommended).
+Tag someone. Search a time window. Get every appearance across cameras.
 
-Uses **MPS** for YOLO, lighter defaults (`yolo11s`, `frame_skip: 3`), and auto device resolution so CUDA settings are not required.
-
----
-
-## Setup (Mac)
-
-```bash
-git clone -b mac https://github.com/keykeyg/ai-NO-key.git
-cd ai-NO-key
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# OSNet (recommended; may fall back to CPU/enhanced on Mac)
-bash scripts/setup_reid.sh
-
-cp config.example.yaml config.yaml
-# Edit topology camera names to match your folders
-```
-
-Verify MPS:
-
-```bash
-python -c "import torch; print('mps', torch.backends.mps.is_available())"
-```
+Apple Silicon (MPS). 32GB+ recommended.
 
 ---
 
-## Workflow
+## The loop you wanted
 
 ```bash
-python scripts/enroll_staff.py --name Marcus --role manager --images m1.jpg m2.jpg
-python scripts/process_night.py --config config.yaml
-python scripts/follow_person.py --profile Marcus
+git pull
+# still on branch mac
+
+# 1) Tag a person in a frame (opens numbered crops)
+python scripts/tag_person.py \
+  --video "data/cameras/test_cam/yourclip.mp4" \
+  --at 5
+
+# 2) Enroll the one you picked
+python scripts/tag_person.py \
+  --video "data/cameras/test_cam/yourclip.mp4" \
+  --at 5 --pick 0 --name Marcus --role hookah
+
+# 3) Find them in a time period (uses detection cache)
+python scripts/search_person.py --profile Marcus --start 21:00 --end 03:00
 ```
 
 Open `data/output/trails/Marcus/report.html`.
 
----
-
-## Mac notes
-
-| Setting | Mac default | Why |
-|---------|-------------|-----|
-| `model` | `yolo11s.pt` | Faster on MPS than `yolo11m` |
-| `frame_skip` | `3` | Overnight still accurate, less work |
-| `device` | `mps` | Apple GPU |
-| OSNet | try MPS/CPU | torchreid is CUDA-first; auto-fallback exists |
-
-If a night is too slow, raise `frame_skip` to `4` or use `yolo11n.pt`.
-
-32GB unified memory is enough because cameras are processed **one at a time**.
+`--end 03:00` after `--start 21:00` wraps overnight.
 
 ---
 
-## Branches
+## Pull last night from UniFi Protect
 
-| Branch | For |
-|--------|-----|
-| `mac` | Apple Silicon (this branch) |
-| `windows` | NVIDIA CUDA (3090 etc.) |
-| `main` | Shared base |
+Edit `config.yaml` → `nvr.host` + camera name map. Credentials via env is safer:
+
+```bash
+export UNIFI_HOST=192.168.1.1
+export UNIFI_USERNAME=admin
+export UNIFI_PASSWORD='...'
+
+python scripts/pull_nvr.py --start "2026-08-21 21:00" --end "2026-08-22 03:00"
+python scripts/process_night.py --config config.yaml --force
+python scripts/search_person.py --profile Marcus --start 21:00 --end 03:00
+```
+
+Frigate: set `nvr.type: frigate` and `nvr.port: 5000`.
+
+---
+
+## Setup
+
+```bash
+git clone -b mac https://github.com/keykeyg/ai-NO-key.git
+cd ai-NO-key
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp config.example.yaml config.yaml
+```
+
+---
+
+## Other useful flags
+
+```bash
+# Relative seconds instead of wall clock
+python scripts/search_person.py --profile Marcus --start-s 0 --end-s 600
+
+# Seed from an existing local track
+python scripts/follow_person.py --seed-camera test_cam --seed-track 1 --name smoke_test --start-s 0 --end-s 120
+```
+
+Protect-style filenames (`...-Aug 21, 11:33 PM - Aug 21, 11:35 PM.mp4`) are parsed so `--start 23:33` maps to wall clock.

@@ -35,16 +35,17 @@ class OvernightPipeline:
         )
         reid_cfg = config.get("reid", {})
         self.embedder = MultiModalEmbedder(
-            body_method=reid_cfg.get("body_method", "enhanced"),
+            body_method=reid_cfg.get("body_method", "osnet"),
             face_backend=reid_cfg.get("face_backend", "none"),
             face_weight=reid_cfg.get("face_weight", 0.15),
+            device=reid_cfg.get("device", "cuda"),
         )
         self.topology = CameraTopology(config.get("topology", {}))
         self.profiles = ProfileStore(config.get("profiles_dir", "data/profiles"), self.embedder)
         self.matcher = SeedMatcher(
             topology=self.topology,
-            match_threshold=reid_cfg.get("match_threshold", 0.52),
-            strong_threshold=reid_cfg.get("strong_match_threshold", 0.68),
+            match_threshold=reid_cfg.get("match_threshold", 0.50),
+            strong_threshold=reid_cfg.get("strong_match_threshold", 0.65),
             max_time_gap=reid_cfg.get("max_time_gap_seconds", 420),
             face_weight=reid_cfg.get("face_weight", 0.15),
         )
@@ -81,7 +82,7 @@ class OvernightPipeline:
                     tr.track_id = new_id
                     cam_tracks[new_id] = tr
                 if tracks:
-                    id_offset = max(cam_tracks.keys()) + 1000  # large gap avoids collisions
+                    id_offset = max(cam_tracks.keys()) + 1000
 
             embs = self.embedder.embed_all_tracks(cam_tracks)
             all_tracks[cam_name] = cam_tracks
@@ -160,9 +161,17 @@ class OvernightPipeline:
                 clips_dir=trail_dir / "clips",
             )
             for c, a in zip(clip_infos, report["appearances"]):
-                # Store path relative to the trail directory so report.html works
                 a["clip"] = f"clips/{c['clip']}" if c.get("clip") else None
 
         save_json(report, trail_dir / "person_trail.json")
+
+        # Auto-write HTML + MD report
+        try:
+            from scripts.export_report import write_trail_reports
+            write_trail_reports(report, trail_dir)
+        except Exception:
+            # fallback inline if import path differs
+            pass
+
         logger.info("Wrote trail → %s", trail_dir)
         return report

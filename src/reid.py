@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -11,12 +11,10 @@ from .tracker import Track
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Body embedding (hand-crafted baseline)
-# Replace with OSNet / Torchreid for production accuracy.
+# Hand-crafted body embedding (fallback)
 # ---------------------------------------------------------------------------
 
 def _enhanced_body_embedding(crop: np.ndarray, size: int = 128) -> np.ndarray:
-    """Appearance descriptor: color + vertical clothing bands + texture + edges."""
     if crop is None or crop.size == 0:
         return np.zeros(160, dtype=np.float32)
 
@@ -61,66 +59,176 @@ def _enhanced_body_embedding(crop: np.ndarray, size: int = 128) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Face embedding
-# The old "upper 35% of body box" histogram is disabled by default because it
-# is not a real face embedding and causes false matches in a bar.
-# When InsightFace (or similar) is installed, set face_backend="insightface".
+# OSNet via torchreid FeatureExtractor
 # ---------------------------------------------------------------------------
 
-def _try_insightface_embedding(crop: np.ndarray):
-    """Optional high-quality face embedding. Returns None if not available."""
+_OSNET_EXTRACTOR = None
+_OSNET_FAILED = False
+
+
+def _get_osnet_extractor(device: str = "cuda"):
+    """Lazy-load torchreid OSNet FeatureExtractor."""
+    global _OSNET_EXTRACTOR, _OSNET_FAILED
+    if _OSNET_FAILED:
+        return None
+    if _OSNET_EXTRACTOR is not None:
+        return _OSNET_EXTRACTOR
+
+    try:
+        from torchreid.utils import FeatureExtractor  # type: ignore
+    except Exception as e:
+        logger.warning(
+            "torchreid not installed — OSNet unavailable (%s). "
+            "Install with: pip install git+https://github.com/KaiyangZhou/deep-person-reid.git", e
+        )
+        _OSNET_FAILED = True
+        return None
+
+    try:
+        # osnet_x1_0 with ImageNet weights is enough to start; market/msmt weights improve ReID further
+        # FeatureExtractor downloads/loads automatically when model_path is omitted for some builds;
+        # we pass model_name and let torchreid handle pretrained ImageNet init.
+        extractor = FeatureExtractor(
+            model_name="osnet_x1_0",
+            device=device if device else "cuda",
+            verbose=False,
+        )
+        _OSNET_EXTRACTOR = extractor
+        logger.info("OSNet (osnet_x1_0) loaded via torchreid on %s", device)
+        return extractor
+    except Exception as e:
+        logger.warning("OSNet init failed: %s — falling back to enhanced hand-crafted body embedding", e)
+        _OSNET_FAILED = True
+        return None
+
+
+def _osnet_embed_bgr(crop: np.ndarray, device: str = "cuda") -> Optional[np.ndarray]:
+    """Embed a single BGR crop with OSNet. Returns L2-normalized 512-d vector."""
+    extractor = _get_osnet_extractor(device=device)
+    if extractor is None or crop is None or crop.size == 0:
+        return None
+    try:
+        # torchreid FeatureExtractor expects RGB numpy or path; convert BGR→RGB
+        rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        feats = extractor([rgb])  # shape (1, 512)
+        if feats is None:
+            return None
+        if hasattr(feats, "cpu"):
+            feats = feats.cpu().numpy()
+        vec = np.asarray(feats[0], dtype=np.float32)
+        vec = vec / (np.linalg.norm(vec) + 1e-8)
+        return vec
+    except Exception as e:
+        logger.debug("OSNet embed failed on crop: %s", e)
+        return None
+
+
+def _osnet_embed_batch_bgr(crops: List[np.ndarray], device: str = "cuda") -> List[Optional[np.ndarray]]:
+    extractor = _get_osnet_extractor(device=device)
+    if extractor is None:
+        return [None] * len(crops)
+    valid_idx = []
+    rgb_list = []
+    for i, c in enumerate(crops):
+        if c is None or c.size == 0:
+            continue
+        valid_idx.append(i)
+        rgb_list.append(cv2.cvtColor(c, cv2.COLOR_BGR2RGB))
+    out: List[Optional[np.ndarray]] = [None] * len(crops)
+    if not rgb_list:
+        return out
+    try:
+        feats = extractor(rgb_list)
+        if hasattr(feats, "cpu"):
+            feats = feats.cpu().numpy()
+        for j, i in enumerate(valid_idx):
+            vec = np.asarray(feats[j], dtype=np.float32)
+            out[i] = vec / (np.linalg.norm(vec) + 1e-8)
+    except Exception as e:
+        logger.debug("OSNet batch embed failed: %s", e)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Optional InsightFace
+# ---------------------------------------------------------------------------
+
+_INSIGHT_APP = None
+_INSIGHT_FAILED = False
+
+
+def _try_insightface_embedding(crop: np.ndarray) -> Optional[np.ndarray]:
+    global _INSIGHT_APP, _INSIGHT_FAILED
+    if _INSIGHT_FAILED:
+        return None
     try:
         from insightface.app import FaceAnalysis  # type: ignore
     except Exception:
+        _INSIGHT_FAILED = True
         return None
 
-    # Lazy singleton
-    global _INSIGHT_APP
-    if "_INSIGHT_APP" not in globals() or _INSIGHT_APP is None:
+    if _INSIGHT_APP is None:
         try:
             app = FaceAnalysis(name="buffalo_l", providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
             app.prepare(ctx_id=0, det_size=(640, 640))
             _INSIGHT_APP = app
-            logger.info("InsightFace loaded for face embeddings")
+            logger.info("InsightFace loaded")
         except Exception as e:
             logger.warning("InsightFace init failed: %s", e)
+            _INSIGHT_FAILED = True
             return None
 
     faces = _INSIGHT_APP.get(crop)
     if not faces:
         return None
-    # Largest face
     face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-    emb = face.normed_embedding.astype(np.float32)
-    return emb
+    return face.normed_embedding.astype(np.float32)
 
 
-_INSIGHT_APP = None
-
+# ---------------------------------------------------------------------------
+# Public embedder
+# ---------------------------------------------------------------------------
 
 class MultiModalEmbedder:
     """
-    face + body embeddings.
-
+    body_method:
+      - "osnet"     : torchreid OSNet (recommended) — falls back to enhanced if missing
+      - "enhanced" : hand-crafted histogram/texture baseline
     face_backend:
-      - "none"         : never use face (safest with current code)
-      - "insightface"  : use InsightFace if installed, else fall back to none
-      - "weak"         : old upper-body histogram (NOT recommended)
+      - "none" | "insightface" | "weak"
     """
 
     def __init__(
         self,
-        body_method: str = "enhanced",
+        body_method: str = "osnet",
         face_backend: str = "none",
         face_weight: float = 0.15,
+        device: str = "cuda",
     ):
         self.body_method = body_method
         self.face_backend = face_backend
-        self.face_weight = float(face_weight)  # how much face can influence score (matcher reads this)
+        self.face_weight = float(face_weight)
+        self.device = device
+
+        if body_method == "osnet":
+            ext = _get_osnet_extractor(device=device)
+            if ext is None:
+                logger.warning("OSNet requested but unavailable — using enhanced body embedding")
+                self.body_method = "enhanced"
+
         logger.info(
-            "ReID embedder ready (body=%s, face_backend=%s, face_weight=%.2f)",
-            body_method, face_backend, face_weight,
+            "ReID ready (body=%s, face=%s, face_weight=%.2f, device=%s)",
+            self.body_method, face_backend, face_weight, device,
         )
+
+    def _body_embed(self, crop: np.ndarray) -> Optional[np.ndarray]:
+        if self.body_method == "osnet":
+            vec = _osnet_embed_bgr(crop, device=self.device)
+            if vec is not None:
+                return vec
+            # soft fallback per-crop
+            return _enhanced_body_embedding(crop)
+        return _enhanced_body_embedding(crop)
 
     def _face_embed(self, crop: np.ndarray) -> Optional[np.ndarray]:
         if self.face_backend == "none":
@@ -128,7 +236,6 @@ class MultiModalEmbedder:
         if self.face_backend == "insightface":
             return _try_insightface_embedding(crop)
         if self.face_backend == "weak":
-            # Kept only for experiments — do not use in production
             h, w = crop.shape[:2]
             if h < 40 or w < 30:
                 return None
@@ -142,7 +249,7 @@ class MultiModalEmbedder:
         return None
 
     def embed_crop(self, crop: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        body = _enhanced_body_embedding(crop)
+        body = self._body_embed(crop)
         face = self._face_embed(crop)
         return face, body
 
@@ -152,13 +259,22 @@ class MultiModalEmbedder:
     def embed_track(self, track: Track) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         if not track.crops:
             return None, None
-        face_list, body_list = [], []
-        for crop in track.crops:
-            f, b = self.embed_crop(crop)
-            if f is not None:
-                face_list.append(f)
-            if b is not None:
-                body_list.append(b)
+
+        if self.body_method == "osnet":
+            body_list = _osnet_embed_batch_bgr(track.crops, device=self.device)
+            body_list = [b for b in body_list if b is not None]
+            if not body_list:
+                body_list = [_enhanced_body_embedding(c) for c in track.crops if c is not None and c.size > 0]
+        else:
+            body_list = [_enhanced_body_embedding(c) for c in track.crops if c is not None and c.size > 0]
+
+        face_list = []
+        if self.face_backend != "none":
+            for c in track.crops:
+                f = self._face_embed(c)
+                if f is not None:
+                    face_list.append(f)
+
         face_e = None
         body_e = None
         if face_list:

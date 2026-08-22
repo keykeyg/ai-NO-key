@@ -8,7 +8,12 @@ pyyaml>=6.0
 tqdm>=4.66.0
 scipy>=1.11.0
 Pillow>=10.0.0
-# Optional future upgrades (uncomment when ready):
-# insightface
-# onnxruntime-gpu
-# torchreid
+gdown>=4.7.0
+
+# OSNet body ReID (strongly recommended)
+# Install torchreid from source:
+#   pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
+# If that fails, the code falls back to the hand-crafted body embedding.
+
+# Optional high-quality face embeddings:
+#   pip install insightface onnxruntime-gpu

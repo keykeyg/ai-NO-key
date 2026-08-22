@@ -17,24 +17,15 @@ def seconds_to_hms(s: float) -> str:
     return f"{m:02d}:{sec:02d}"
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--trail", required=True, help="Path to person_trail.json")
-    parser.add_argument("--out-dir", default=None)
-    args = parser.parse_args()
-
-    trail_path = Path(args.trail)
-    with open(trail_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    out_dir = Path(args.out_dir) if args.out_dir else trail_path.parent
+def write_trail_reports(data: dict, out_dir: Path) -> None:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
     name = data.get("name", "person")
 
-    # Markdown
     lines = [
         f"# Person Trail — {name}",
         "",
-        f"Appearances: **{data['num_appearances']}**",
+        f"Appearances: **{data.get('num_appearances', 0)}**",
         "",
         "| # | Camera | Start | End | Score | Clip |",
         "|---|--------|-------|-----|-------|------|",
@@ -45,12 +36,8 @@ def main() -> None:
             f"| {i} | {a['camera']} | {seconds_to_hms(a['start_s'])} | "
             f"{seconds_to_hms(a['end_s'])} | {a.get('score', 0):.2f} | `{clip}` |"
         )
+    (out_dir / "trail.md").write_text("\n".join(lines), encoding="utf-8")
 
-    md_path = out_dir / "trail.md"
-    md_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"Wrote {md_path}")
-
-    # HTML
     rows = []
     for i, a in enumerate(data.get("appearances", []), 1):
         clip = a.get("clip")
@@ -73,17 +60,30 @@ a {{ color: #7dd3a7; }}
 </style></head>
 <body>
 <h1>Person Trail — {name}</h1>
-<p>{data['num_appearances']} appearances</p>
+<p>{data.get('num_appearances', 0)} appearances</p>
 <table>
 <thead><tr><th>#</th><th>Camera</th><th>Start</th><th>End</th><th>Score</th><th>Clip</th></tr></thead>
 <tbody>
 {''.join(rows)}
 </tbody></table>
 </body></html>"""
+    (out_dir / "report.html").write_text(html, encoding="utf-8")
 
-    html_path = out_dir / "report.html"
-    html_path.write_text(html, encoding="utf-8")
-    print(f"Wrote {html_path}")
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--trail", required=True, help="Path to person_trail.json")
+    parser.add_argument("--out-dir", default=None)
+    args = parser.parse_args()
+
+    trail_path = Path(args.trail)
+    with open(trail_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    out_dir = Path(args.out_dir) if args.out_dir else trail_path.parent
+    write_trail_reports(data, out_dir)
+    print(f"Wrote {out_dir / 'trail.md'}")
+    print(f"Wrote {out_dir / 'report.html'}")
 
 
 if __name__ == "__main__":

@@ -1,146 +1,83 @@
 # AI No Key
 
-**Local overnight multi-camera person tracking built for busy bars.**
+**Track one staff member across 30+ bar cameras for an entire night.**
 
-Track a specific individual (manager, bartender, hookah staff) from a seed appearance at the beginning of the shift all the way through the night across 30+ cameras.
+Seed → Follow pipeline: enroll a manager/bartender/hookah lead (or pick an early appearance), process the night offline on a 3090, get a continuous Person Trail with ordered clips.
 
-Designed as a practical, stronger alternative to UniFi Protect AI Key for environments where faces are often not visible and detection queues would overflow.
+Built as a stronger alternative to UniFi Protect AI Key for crowded, dark bar conditions.
 
----
-
-## Core Goal
-
-**Seed → Follow**
-
-1. Enroll key staff (or pick a clear early appearance).
-2. Process the entire previous night’s footage offline on an RTX 3090.
-3. Receive a continuous **Person Trail**: every camera that person appeared on, in time order, with short review clips.
-
-This works even when the person is mostly seen from behind, in dark areas, or in crowded sections of the bar.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for design + UniFi research notes.
 
 ---
 
-## Why this exists
-
-UniFi AI Key is excellent at enriching detections and letting you name faces, but it has hard limits in a real bar:
-
-- Detection queue (~200) and hourly caps mean many events are dropped on busy nights.
-- Heavy reliance on clear faces.
-- No strong continuous “follow this one person all night” mode.
-- No use of staff movement patterns between cameras.
-
-AI No Key is built specifically to solve those problems with offline full-pass processing, multi-modal identity (face + body), and camera topology priors.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design rationale and research notes.
-
----
-
-## Features
-
-- Staff profile enrollment (multiple reference photos per person)
-- Multi-modal identity (face when available + body/clothing ReID)
-- Seed → Follow mode for a single individual
-- Camera topology / transition priors
-- Overnight batch processing of many cameras on one GPU
-- Person Trail report + ordered short clips
-- HTML + Markdown output for quick morning review
-
----
-
-## Quick Start
+## Install
 
 ```bash
 git clone https://github.com/keykeyg/ai-NO-key.git
 cd ai-NO-key
-
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+# OSNet (strongly recommended)
+bash scripts/setup_reid.sh
+# or: pip install git+https://github.com/KaiyangZhou/deep-person-reid.git
+
 cp config.example.yaml config.yaml
-# Edit paths, camera list, and topology for your bars
+# Edit camera names + topology to match your bars
 ```
 
-### 1. Enroll staff (do this once)
+---
+
+## Workflow
 
 ```bash
-python scripts/enroll_staff.py --name "Marcus" --role manager --images path/to/photos/
-```
+# 1. Enroll staff (person-cropped automatically)
+python scripts/enroll_staff.py --name Marcus --role manager --images m1.jpg m2.jpg m3.jpg
 
-### 2. Put the night’s videos in place
-
-```
-data/cameras/
-  bar_main/2026-08-21.mp4
-  hookah/2026-08-21.mp4
-  kitchen/2026-08-21.mp4
-  ...
-```
-
-### 3. Run overnight job (full detection + tracking)
-
-```bash
+# 2. Full night detection (cached)
 python scripts/process_night.py --config config.yaml
+
+# 3. Follow that person (uses cache — fast)
+python scripts/follow_person.py --profile Marcus
+
+# 4. Open the trail
+# data/output/trails/Marcus/report.html
 ```
 
-### 4. Follow a specific person
+Seed from a live early track instead of a profile:
 
 ```bash
-# Using an enrolled profile
-python scripts/follow_person.py --config config.yaml --profile Marcus
-
-# Or seed from a specific local track that appeared early
-python scripts/follow_person.py --config config.yaml --seed-camera bar_main --seed-track 12
+python scripts/follow_person.py --seed-camera bar_main --seed-track 12 --name Marcus
 ```
 
-### 5. Review
+Re-run YOLO only when needed:
 
-Open `data/output/trails/Marcus/report.html` (or the equivalent for the seed you chose).
-
----
-
-## Project Layout
-
-```
-ai-NO-key/
-├── ARCHITECTURE.md          # Full design + UniFi comparison
-├── README.md
-├── config.example.yaml
-├── requirements.txt
-├── scripts/
-│   ├── enroll_staff.py      # Create staff profiles
-│   ├── process_night.py     # Detect + track all cameras
-│   ├── follow_person.py     # Seed → Follow mode
-│   └── export_report.py
-├── src/
-│   ├── detector.py
-│   ├── tracker.py
-│   ├── reid.py              # Multi-modal embeddings
-│   ├── profiles.py          # Staff gallery
-│   ├── topology.py          # Camera transition graph
-│   ├── matcher.py           # Seed matching + global association
-│   ├── clips.py
-│   ├── pipeline.py
-│   └── utils.py
-└── data/                    # videos, profiles, output (gitignored)
+```bash
+python scripts/follow_person.py --profile Marcus --force-detect
 ```
 
 ---
 
-## Hardware
+## What is implemented
 
-- RTX 3090 (24 GB) or better recommended
-- 64 GB+ system RAM for large nights
-- Fast storage for the night’s video files
-
-Processing is sequential/grouped per camera so VRAM stays manageable.
+| Piece | Status |
+|-------|--------|
+| Staff enrollment + person crop | Done |
+| YOLO + ByteTrack per camera | Done |
+| OSNet body ReID (torchreid) | Done (falls back if missing) |
+| InsightFace face path | Ready (`face_backend: insightface`) |
+| Detection cache | Done |
+| Seed → Follow matcher + gap penalty | Done |
+| Camera topology validation | Done |
+| Person Trail + clips + HTML | Done |
 
 ---
 
-## Status
+## Config tips for a busy bar
 
-This is a working foundation focused on the exact goal above.  
-The biggest future accuracy upgrade is swapping the body embedding for a real OSNet / Torchreid model (the interfaces are already in place).
+- Set `topology.cameras` and `transitions` to your real layout — this is a major accuracy lever.
+- Keep `face_backend: none` until InsightFace is installed and tested.
+- `body_method: osnet` is the default. If torchreid is not installed it automatically uses the hand-crafted fallback.
 
 ---
 

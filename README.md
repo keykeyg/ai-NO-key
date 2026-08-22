@@ -50,6 +50,24 @@ Frigate: set `nvr.type: frigate` and `nvr.port: 5000`.
 
 ---
 
+## Web UI (tag + search + trails)
+
+Portable local UI — no Xcode, works on Mac and Windows.
+
+```bash
+python scripts/serve_ui.py
+# open http://127.0.0.1:8787
+```
+
+1. **Tag** — pick a clip + timestamp → numbered people → enroll
+2. **Search** — profile + `21:00`–`03:00` → Person Trail across cameras
+3. **Trails** — open any saved night
+
+If YOLO/torch aren’t importable the UI still loads in **demo mode** with sample bar data.
+When your venv is active and detections are cached, the same UI drives the real pipeline.
+
+---
+
 ## Setup
 
 ```bash

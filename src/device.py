@@ -33,7 +33,6 @@ def resolve_device(preferred: str | None = None) -> str:
     if pref in ("cpu",):
         return "cpu"
 
-    # cuda / 0 / empty → prefer mps on this branch
     if mps_ok:
         if pref in ("cuda", "0", "cuda:0", ""):
             logger.info("Mac branch: using MPS instead of CUDA device '%s'", pref or "auto")
@@ -41,3 +40,8 @@ def resolve_device(preferred: str | None = None) -> str:
 
     logger.warning("MPS not available — using cpu")
     return "cpu"
+
+
+def reid_device(preferred: str | None = None) -> str:
+    """Device string for OSNet / torchreid (mps on this branch)."""
+    return resolve_device(preferred)

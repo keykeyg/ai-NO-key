@@ -2,6 +2,7 @@
 """Night Trail web UI.  python scripts/serve_ui.py  →  http://127.0.0.1:8787"""
 from __future__ import annotations
 import argparse, base64, json, logging, mimetypes, sys, threading, traceback, uuid
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
@@ -15,9 +16,11 @@ logger = logging.getLogger("serve_ui")
 def _load_cfg(path: str = "config.yaml") -> dict:
     try:
         from src.utils import load_config
+        from src.sites import apply_site
         for p in (ROOT / path, ROOT / "config.example.yaml"):
             if p.exists():
-                return load_config(str(p))
+                cfg = load_config(str(p))
+                return apply_site(cfg)
     except Exception as e:
         logger.warning("Config: %s", e)
     return {"cameras_root": "data/cameras", "output_dir": "data/output", "profiles_dir": "data/profiles",
@@ -173,6 +176,10 @@ def list_cameras() -> list:
                     "path": str(vids[0].relative_to(ROOT)).replace("\\", "/") if vids else f"data/cameras/{d.name}"})
     return out
 
+def list_nvr_camera_names() -> list:
+    nvr = CFG.get("nvr") or {}
+    return [{"protect": k, "folder": v} for k, v in (nvr.get("cameras") or {}).items()]
+
 def list_profiles() -> list:
     try:
         from src.profiles import ProfileStore
@@ -230,15 +237,19 @@ def api_status() -> dict:
         device = resolve_device(CFG.get("device") or (CFG.get("reid") or {}).get("device"))
     except Exception:
         pass
+    from src.sites import list_sites
     return {
         "product": "Night Trail",
         "mode": "live" if LIVE else "demo",
         "device": device,
         "cameras": list_cameras(),
+        "nvr_cameras": list_nvr_camera_names(),
         "profiles": list_profiles(),
         "root": str(ROOT),
         "source_mode": CFG.get("source_mode") or "nvr",
         "reid": _osnet_status(),
+        "sites": list_sites(CFG),
+        "active_site": CFG.get("active_site") or "default",
     }
 
 def _b64_jpg(img) -> str:
@@ -298,12 +309,7 @@ def api_enroll(body: dict) -> dict:
     emb = MultiModalEmbedder(body_method=r.get("body_method", "osnet"), face_backend=r.get("face_backend", "none"),
                              face_weight=r.get("face_weight", 0.15), device=_reid_dev(r.get("device") or CFG.get("device")))
     store = ProfileStore(CFG.get("profiles_dir", "data/profiles"), emb)
-    # Merge with existing profile crops if present
     existing = store.load(name)
-    if existing and existing.body_embeddings:
-        # re-enroll: add new crops on top by reloading images isn't available; append via enroll_from_crops replaces
-        # For v1: re-enroll with new crops only OR merge by calling enroll with all new crops
-        pass
     store.enroll_from_crops(
         name=name, crops=crops, saved_paths=paths, role=role or (existing.role if existing else ""),
         notes=f"ui tag {vpath.name} @ {session['at_s']:.1f}s picks={picks}",
@@ -319,6 +325,76 @@ def api_test_nvr() -> dict:
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+def api_seed_pull(body: dict) -> dict:
+    """Pull a short window around a timestamp from one Protect camera for tagging."""
+    from src.nvr import export_range, NvrError
+    from src.timerange import parse_when, tzinfo_from_name
+    camera = (body.get("camera") or "").strip()
+    when = (body.get("when") or body.get("at") or "").strip()
+    minutes = float(body.get("minutes") or 2)
+    if not camera or not when:
+        raise ValueError("camera and when required (e.g. camera='Hookah Room', when='20:43')")
+    tz = CFG.get("timezone") or "America/Chicago"
+    t = parse_when(when, tz)
+    if t is None:
+        raise ValueError(f"Could not parse time: {when}")
+    half = timedelta(minutes=max(0.5, minutes / 2.0))
+    t0, t1 = t - half, t + half
+    start_s = t0.strftime("%Y-%m-%d %H:%M")
+    end_s = t1.strftime("%Y-%m-%d %H:%M")
+    try:
+        written = export_range(CFG, start_s, end_s, cameras=[camera])
+    except NvrError as e:
+        raise RuntimeError(str(e)) from e
+    files = []
+    for folder, paths in written.items():
+        for p in paths:
+            rel = str(p.relative_to(ROOT)).replace("\\", "/") if p.is_absolute() else str(p)
+            files.append({"folder": folder, "path": rel, "name": p.name})
+    return {"ok": True, "start": start_s, "end": end_s, "camera": camera, "files": files, "cameras": list_cameras()}
+
+def api_set_site(body: dict) -> dict:
+    import yaml
+    from src.sites import apply_site, list_sites
+    site_id = (body.get("site") or body.get("id") or "").strip()
+    if not site_id:
+        raise ValueError("site required")
+    cfg_p = _cfg_path()
+    if cfg_p.exists():
+        data = yaml.safe_load(cfg_p.read_text()) or {}
+    else:
+        data = dict(CFG)
+    data["active_site"] = site_id
+    cfg_p.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
+    global CFG
+    CFG = apply_site(_load_cfg.__wrapped__(path) if False else _load_cfg("config.yaml"))
+    # force reload
+    from src.utils import load_config
+    raw = load_config(str(cfg_p)) if cfg_p.exists() else data
+    CFG = apply_site(raw, site_id)
+    return {"ok": True, "active_site": site_id, "sites": list_sites(CFG), "status": api_status()}
+
+def api_feedback(body: dict) -> dict:
+    from src.feedback import log_feedback, summary
+    profile = (body.get("profile") or body.get("trail") or "").strip()
+    camera = (body.get("camera") or "").strip()
+    verdict = (body.get("verdict") or "").strip().lower()
+    if verdict not in ("correct", "wrong", "unsure"):
+        raise ValueError("verdict must be correct|wrong|unsure")
+    if not profile or not camera:
+        raise ValueError("profile and camera required")
+    log_feedback(
+        CFG.get("output_dir") or "data/output",
+        profile=profile,
+        trail=body.get("trail") or profile,
+        camera=camera,
+        local_id=int(body.get("local_id") or 0),
+        score=float(body.get("score") or 0),
+        confidence=body.get("confidence") or "possible",
+        verdict=verdict,
+    )
+    return {"ok": True, "summary": summary(CFG.get("output_dir") or "data/output")}
+
 def _run_search_job(job_id: str, body: dict) -> None:
     from src import progress as prog
     from src.pipeline import OvernightPipeline
@@ -330,6 +406,8 @@ def _run_search_job(job_id: str, body: dict) -> None:
         source = (body.get("source") or CFG.get("source_mode") or "nvr").lower()
 
         def on_progress(phase, cur, total, detail=""):
+            if prog.is_cancelled(job_id):
+                raise RuntimeError("cancelled")
             labels = {"pull": "Pulling from NVR", "detect": "Detecting people", "match": "Matching profile"}
             prog.update(
                 job_id,
@@ -351,8 +429,14 @@ def _run_search_job(job_id: str, body: dict) -> None:
             force_detect=bool(body.get("force")),
             progress=on_progress,
         )
+        if prog.is_cancelled(job_id):
+            prog.fail(job_id, "cancelled")
+            return
         prog.complete(job_id, report)
     except Exception as e:
+        if str(e) == "cancelled":
+            prog.fail(job_id, "cancelled")
+            return
         logger.error("search job failed: %s\n%s", e, traceback.format_exc())
         prog.fail(job_id, str(e))
 
@@ -367,7 +451,6 @@ def api_search_start(body: dict) -> dict:
     return {"job_id": job_id}
 
 def api_search_sync(body: dict) -> dict:
-    """Legacy sync search (CLI-style). Prefer /api/search/start + poll."""
     if not LIVE:
         raise RuntimeError("Pipeline deps not installed")
     from src.pipeline import OvernightPipeline
@@ -386,7 +469,7 @@ def api_search_sync(body: dict) -> dict:
     )
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NightTrail/1.2"
+    server_version = "NightTrail/1.3"
     def log_message(self, fmt, *args):
         logger.info("%s - %s", self.address_string(), fmt % args)
     def do_OPTIONS(self):
@@ -402,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/setup":
             return _json(self, 200, setup_status())
         if path == "/api/cameras":
-            return _json(self, 200, {"cameras": list_cameras()})
+            return _json(self, 200, {"cameras": list_cameras(), "nvr_cameras": list_nvr_camera_names()})
         if path == "/api/profiles":
             return _json(self, 200, {"profiles": list_profiles()})
         if path == "/api/trails":
@@ -419,7 +502,6 @@ class Handler(BaseHTTPRequestHandler):
                 return _json(self, 200, res) if res is not None else _json(self, 404, {"error": "no result"})
             job = prog.get(jid)
             return _json(self, 200, job) if job else _json(self, 404, {"error": "unknown job"})
-        # Serve trail clips: /media/trails/<name>/clips/<file>
         if path.startswith("/media/"):
             rel = unquote(path[len("/media/"):])
             if ".." in rel:
@@ -459,6 +541,12 @@ class Handler(BaseHTTPRequestHandler):
                 return _json(self, 200, save_setup(body))
             if path == "/api/test_nvr":
                 return _json(self, 200, api_test_nvr())
+            if path == "/api/seed":
+                return _json(self, 200, api_seed_pull(body))
+            if path == "/api/site":
+                return _json(self, 200, api_set_site(body))
+            if path == "/api/feedback":
+                return _json(self, 200, api_feedback(body))
             if path == "/api/tag":
                 return _json(self, 200, api_tag(body))
             if path == "/api/enroll":
@@ -467,6 +555,11 @@ class Handler(BaseHTTPRequestHandler):
                 return _json(self, 200, api_search_start(body))
             if path == "/api/search":
                 return _json(self, 200, api_search_sync(body))
+            if path.startswith("/api/jobs/") and path.endswith("/cancel"):
+                from src import progress as prog
+                jid = path[len("/api/jobs/"):-len("/cancel")]
+                ok = prog.request_cancel(jid)
+                return _json(self, 200, {"ok": ok, "job_id": jid})
             return _json(self, 404, {"error": "unknown endpoint"})
         except Exception as e:
             logger.error("%s\n%s", e, traceback.format_exc())

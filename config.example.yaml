@@ -1,24 +1,45 @@
-# AI No Key — Configuration
+# AI No Key — Configuration (shared base)
+# Prefer branch `windows` (RTX 3090) or `mac` (Apple Silicon).
 
 cameras_root: "data/cameras"
 output_dir: "data/output"
 profiles_dir: "data/profiles"
+timezone: "America/Chicago"
 
 model: "yolo11m.pt"
 classes: [0]
 conf: 0.4
 tracker: "bytetrack.yaml"
 frame_skip: 2
+device: "0"                   # CUDA index; auto-falls back to mps/cpu
 
 reid:
   # osnet = real person ReID (requires torchreid). Falls back to enhanced automatically.
   body_method: "osnet"
   face_backend: "none"          # none | insightface | weak
   face_weight: 0.15
-  match_threshold: 0.50         # slightly lower OK with OSNet
+  match_threshold: 0.50
   strong_match_threshold: 0.65
   max_time_gap_seconds: 420
   device: "cuda"
+
+# Pull footage: python scripts/pull_nvr.py --start 21:00 --end 03:00
+nvr:
+  type: unifi                 # unifi | frigate
+  host: "192.168.1.1"
+  port: 443
+  username: ""                # or env UNIFI_USERNAME
+  password: ""                # or env UNIFI_PASSWORD
+  verify_ssl: false
+  chunk_minutes: 15
+  cameras:                    # Protect camera name → local folder
+    "Downstairs Across Hookah D1": hookah
+    "Bar Main": bar_main
+    "Bar Service": bar_service
+    "Kitchen": kitchen
+    "Office": office
+    "Entrance": entrance
+    "Patio": patio
 
 topology:
   enabled: true

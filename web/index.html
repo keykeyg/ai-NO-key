@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>AI No Key</title>
+<title>Night Trail</title>
 <style>
-:root{--bg:#0b0d12;--bg2:#12151c;--bg3:#1a1f2a;--border:#2a3140;--text:#e8eaed;--muted:#8b93a7;--accent:#5eead4;--accent-dim:#2dd4bf33;--warn:#fbbf24;--ok:#34d399}
+:root{--bg:#0b0d12;--bg2:#12151c;--bg3:#1a1f2a;--border:#2a3140;--text:#e8eaed;--muted:#8b93a7;--accent:#5eead4;--accent-dim:#2dd4bf33;--warn:#fbbf24;--ok:#34d399;--bad:#f87171}
 *{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:14px}
 button,input,select{font:inherit;color:inherit}#app{min-height:100%;display:grid;grid-template-rows:auto 1fr}
 .topbar{display:flex;align-items:center;gap:1rem;padding:.85rem 1.25rem;border-bottom:1px solid var(--border);background:#12151c}
@@ -23,7 +23,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 .row{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
 .btn{border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:8px;padding:.55rem .9rem;cursor:pointer;width:100%}
 .btn-primary{background:linear-gradient(180deg,#2dd4bf,#14b8a6);border-color:#0f766e;color:#042f2e;font-weight:650}
-.hint{font-size:12px;color:var(--muted);margin-top:.35rem}
+.btn:disabled{opacity:.55;cursor:wait}.hint{font-size:12px;color:var(--muted);margin-top:.35rem}
 .frame-wrap{background:#000;border:1px solid var(--border);border-radius:12px;min-height:320px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .frame-wrap img{max-width:100%;max-height:55vh}.frame-empty{color:var(--muted);text-align:center;padding:2rem}
 .people-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:.75rem;margin-top:.75rem}
@@ -37,7 +37,9 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 .stat .v{font-size:1.3rem;font-weight:700;color:var(--accent)}.stat .k{font-size:11px;color:var(--muted);text-transform:uppercase}
 .appear{display:grid;grid-template-columns:32px 1fr auto;gap:.75rem;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:.7rem .9rem;margin-bottom:.5rem}
 .appear .num{width:28px;height:28px;border-radius:8px;background:var(--accent-dim);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:12px}
-.appear .cam{font-weight:600}.appear .when{color:var(--muted);font-size:12px}.appear .score{color:var(--ok);font-weight:650}
+.appear .cam{font-weight:600}.appear .when{color:var(--muted);font-size:12px}
+.tier{font-size:11px;font-weight:700;padding:.2rem .45rem;border-radius:6px;text-transform:uppercase}
+.tier.strong{background:#064e3b;color:var(--ok)}.tier.possible{background:#78350f;color:var(--warn)}.tier.weak{background:#3f1d1d;color:var(--bad)}
 .chip{font-size:12px;padding:.25rem .55rem;border-radius:999px;background:var(--bg3);border:1px solid var(--border);color:var(--muted);margin:0 .3rem .3rem 0;display:inline-block}
 .chip strong{color:var(--text)}.empty-state{border:1px dashed var(--border);border-radius:12px;padding:2rem;text-align:center;color:var(--muted)}
 .toast{position:fixed;bottom:1rem;right:1rem;background:var(--bg3);border:1px solid var(--border);padding:.7rem 1rem;border-radius:10px;opacity:0;transition:.2s;z-index:50}
@@ -48,14 +50,18 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 .wizard h1{font-size:1.35rem;margin-bottom:.35rem}.wizard .sub{color:var(--muted);margin-bottom:1.25rem;font-size:13px;line-height:1.5}
 .wizard .steps{display:flex;gap:.4rem;margin-bottom:1.25rem}
 .wizard .step-dot{height:4px;flex:1;border-radius:4px;background:var(--border)}.wizard .step-dot.on{background:var(--accent)}
+.progress{margin:1rem 0;padding:1rem;background:var(--bg2);border:1px solid var(--border);border-radius:12px}
+.progress .bar{height:8px;background:var(--bg3);border-radius:99px;overflow:hidden;margin:.6rem 0}
+.progress .fill{height:100%;background:linear-gradient(90deg,#2dd4bf,#14b8a6);width:0%;transition:width .3s}
+.clipbox{margin-top:.5rem}video{width:100%;max-height:220px;border-radius:8px;background:#000}
 </style></head>
 <body>
 <div id="setup-overlay" class="overlay hidden">
   <div class="wizard">
     <div class="steps"><div class="step-dot on" id="sd0"></div><div class="step-dot" id="sd1"></div><div class="step-dot" id="sd2"></div></div>
     <div id="wiz-step0">
-      <h1>Welcome to AI No Key</h1>
-      <p class="sub">Tag someone in one frame. Search every camera for the night. NVR pulls only the window you ask for.</p>
+      <h1>Night Trail</h1>
+      <p class="sub">Tag someone in one frame. Search every mapped camera for the night. NVR pulls only the window you ask for.</p>
       <button class="btn btn-primary" id="wiz-next0">Get started</button>
       <button class="btn" id="wiz-skip" style="margin-top:.5rem">Skip for now (demo)</button>
     </div>
@@ -71,6 +77,8 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
         <div class="field"><label>Port</label><input id="setup-port" placeholder="443"/></div>
       </div>
       <div class="field"><label>Password</label><input id="setup-pass" type="password" placeholder="••••••••" autocomplete="current-password"/></div>
+      <button class="btn" id="wiz-test" style="margin-bottom:.5rem">Test connection</button>
+      <p class="hint" id="test-result"></p>
       <button class="btn btn-primary" id="wiz-next1">Continue</button>
     </div>
     <div id="wiz-step2" class="hidden">
@@ -92,7 +100,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 </div>
 <div id="app">
 <header class="topbar">
-<div class="brand"><div class="brand-mark"></div>AI <span>No Key</span></div>
+<div class="brand"><div class="brand-mark"></div>Night <span>Trail</span></div>
 <nav class="tabs">
 <button class="tab active" data-tab="tag">Tag</button>
 <button class="tab" data-tab="search">Search</button>
@@ -107,9 +115,9 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <div class="field"><label>Camera clip</label><select id="video-path"></select></div>
 <div class="field"><label>Timestamp</label><input id="tag-at" value="5"/></div>
 <button class="btn btn-primary" id="btn-tag">Detect people</button>
-<p class="hint">One frame → enroll → search the night.</p></div>
+<p class="hint">Select one or more crops — multi-crop improves accuracy.</p></div>
 <div class="card hidden" id="enroll-box"><h3>Enroll</h3>
-<p class="hint" id="pick-label">Click a person</p>
+<p class="hint" id="pick-label">Click people to select</p>
 <div class="field"><label>Name</label><input id="enroll-name" placeholder="Marcus"/></div>
 <div class="field"><label>Role</label><input id="enroll-role" placeholder="hookah"/></div>
 <button class="btn btn-primary" id="btn-enroll">Save profile</button></div>
@@ -124,7 +132,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
   </select>
 </div>
 <button class="btn btn-primary" id="btn-search">Search all cameras</button>
-<p class="hint">NVR pulls only 8pm–3am from Protect — not 90GB. Local uses data/cameras.</p></div>
+<p class="hint">NVR pulls only your window — not the whole archive.</p></div>
 </aside>
 <section class="panel">
 <div id="view-tag">
@@ -135,7 +143,14 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 </div>
 <div class="people-grid" id="people-grid"></div>
 </div>
-<div id="view-search" class="hidden"><div id="trail-results"><div class="empty-state"><strong>Person trail</strong>Tag + search 8pm–3am across cameras.</div></div></div>
+<div id="view-search" class="hidden">
+  <div id="search-progress" class="progress hidden">
+    <div><strong id="prog-msg">Working…</strong></div>
+    <div class="bar"><div class="fill" id="prog-fill"></div></div>
+    <div class="meta" id="prog-detail"></div>
+  </div>
+  <div id="trail-results"><div class="empty-state"><strong>Person trail</strong><br/>Tag + search 8pm–3am across cameras.</div></div>
+</div>
 <div id="view-trails" class="hidden"><h2>Saved trails</h2><div id="trails-list" style="margin-top:1rem"></div></div>
 </section>
 </div></div>
@@ -143,8 +158,8 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--border);bord
 <script src="demo-data.js"></script>
 <script>
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-const state={mode:"demo",cameras:[],profiles:[],selected:null,wiz:0};
-function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2500)}
+const state={mode:"demo",cameras:[],profiles:[],selected:new Set(),wiz:0,job:null};
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2800)}
 async function api(path,opts={}){try{const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.statusText);return await r.json()}catch(e){return path.startsWith("/api/")?null:Promise.reject(e)}}
 function showWiz(step){state.wiz=step;$("#setup-overlay").classList.remove("hidden");
 [0,1,2].forEach(i=>{$(`#wiz-step${i}`).classList.toggle("hidden",i!==step);$(`#sd${i}`).classList.toggle("on",i<=step)})}
@@ -153,19 +168,33 @@ async function boot(){const s=await api("/api/status");
 if(s){state.mode=s.mode;state.cameras=s.cameras||[];state.profiles=s.profiles||[];
 if(s.source_mode&&$("#search-source"))$("#search-source").value=s.source_mode;
 if(s.setup&&!s.setup.configured)showWiz(0);
-}else{state.cameras=DEMO.cameras;state.profiles=DEMO.profiles;showWiz(0)}
+const reid=s.reid?.label||"";
 $(".dot").className="dot "+(state.mode==="live"?"live":"demo");
-$("#status-label").textContent=state.mode==="live"?`Live · ${s?.device||""}`:"Demo mode";
+$("#status-label").textContent=state.mode==="live"?`Live · ${s.device||""} · ${reid}`:`Demo · ${reid}`;
+}else{state.cameras=DEMO.cameras;state.profiles=DEMO.profiles;showWiz(0);
+$(".dot").className="dot demo";$("#status-label").textContent="Demo mode"}
 const vs=$("#video-path");vs.innerHTML="";
-state.cameras.forEach(c=>{const o=document.createElement("option");o.value=c.path||`data/cameras/${c.name}/${c.sample||""}`;o.textContent=c.sample?`${c.name} · ${c.sample}`:c.name;if((c.sample||"").includes("Hookah")||c.name==="hookah")o.selected=true;vs.appendChild(o)});
+state.cameras.forEach(c=>{const o=document.createElement("option");o.value=c.path||`data/cameras/${c.name}/${c.sample||""}`;o.textContent=c.sample?`${c.name} · ${c.sample}`:c.name;if((c.sample||"").includes("Hookah")||c.name.includes("hookah"))o.selected=true;vs.appendChild(o)});
 $("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("")||"<option>No profiles</option>";
 }
 $("#wiz-next0").onclick=()=>showWiz(1);
 $("#wiz-skip").onclick=()=>hideWiz();
 $("#wiz-next1").onclick=()=>{if(!$("#setup-host").value.trim()){toast("Enter host IP");return}showWiz(2)};
+$("#wiz-test").onclick=async()=>{
+  // save first so test uses current fields
+  const body={host:$("#setup-host").value.trim(),username:$("#setup-user").value.trim(),password:$("#setup-pass").value,timezone:$("#setup-tz")?.value||"America/Chicago",nvr_type:$("#setup-type").value,port:$("#setup-port").value||undefined,source_mode:"nvr"};
+  await api("/api/setup",{method:"POST",body:JSON.stringify(body)});
+  $("#test-result").textContent="Testing…";
+  const res=await api("/api/test_nvr",{method:"POST",body:"{}"});
+  if(!res){$("#test-result").textContent="Server offline";return}
+  if(res.ok){
+    const miss=(res.mapped_missing||[]).length;
+    $("#test-result").textContent=`OK — ${res.count} cameras`+(miss?` · ${miss} mapped names missing in Protect`:" · mapped cams found");
+  }else{$("#test-result").textContent="Failed: "+(res.error||"unknown")}
+};
 $("#wiz-save").onclick=async()=>{const body={host:$("#setup-host").value.trim(),username:$("#setup-user").value.trim(),password:$("#setup-pass").value,timezone:$("#setup-tz").value,nvr_type:$("#setup-type").value,port:$("#setup-port").value||undefined,source_mode:"nvr"};
 const res=await api("/api/setup",{method:"POST",body:JSON.stringify(body)});
-if(res){toast("Saved — NVR is default");hideWiz()}else{toast("Could not save (is the server running?)");hideWiz()}};
+if(res){toast("Saved — NVR is default");hideWiz()}else{toast("Could not save");hideWiz()}};
 $("#btn-setup").onclick=()=>showWiz(1);
 function showTab(n){$$(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===n));
 $("#view-tag").classList.toggle("hidden",n!=="tag");$("#view-search").classList.toggle("hidden",n!=="search");$("#view-trails").classList.toggle("hidden",n!=="trails");
@@ -175,29 +204,70 @@ $("#btn-tag").onclick=async()=>{const btn=$("#btn-tag");btn.disabled=true;btn.in
 const video=$("#video-path").value,at=$("#tag-at").value||"5";
 let session=await api("/api/tag",{method:"POST",body:JSON.stringify({video,at})});
 if(!session){const canvas=document.createElement("canvas");const people=DEMO.tagPeople.map(p=>({...p,crop_b64:drawDemoCrop(p)}));session={at_s:+at||5,overview_b64:drawDemoFrame(canvas,DEMO.tagPeople),num_people:people.length,people,demo:true};toast("Demo tag")}
+state.selected=new Set();
 $("#tag-meta").textContent=session.num_people+" people @ "+session.at_s+"s";
 const img=$("#overview-img");img.src=session.overview_b64.startsWith("data:")?session.overview_b64:"data:image/jpeg;base64,"+session.overview_b64;img.classList.remove("hidden");$("#frame-empty").classList.add("hidden");
-const grid=$("#people-grid");grid.innerHTML="";session.people.forEach(p=>{const d=document.createElement("div");d.className="person-card";d.innerHTML=`<img src="${p.crop_b64.startsWith("data:")?p.crop_b64:"data:image/jpeg;base64,"+p.crop_b64}"/><div class="info"><span class="idx">#${p.index}</span><span>${(p.conf*100).toFixed(0)}%</span></div>`;d.onclick=()=>{state.selected=p.index;$$(".person-card").forEach(x=>x.classList.remove("selected"));d.classList.add("selected");$("#pick-label").textContent="Selected #"+p.index};grid.appendChild(d)});
+const grid=$("#people-grid");grid.innerHTML="";session.people.forEach(p=>{const d=document.createElement("div");d.className="person-card";d.dataset.idx=p.index;d.innerHTML=`<img src="${p.crop_b64.startsWith("data:")?p.crop_b64:"data:image/jpeg;base64,"+p.crop_b64}"/><div class="info"><span class="idx">#${p.index}</span><span>${(p.conf*100).toFixed(0)}%</span></div>`;
+d.onclick=()=>{if(state.selected.has(p.index))state.selected.delete(p.index);else state.selected.add(p.index);d.classList.toggle("selected",state.selected.has(p.index));$("#pick-label").textContent=state.selected.size?`Selected ${[...state.selected].join(", ")}`:"Click people to select"};grid.appendChild(d)});
 $("#enroll-box").classList.remove("hidden");btn.disabled=false;btn.textContent="Detect people"};
-$("#btn-enroll").onclick=async()=>{if(state.selected==null)return toast("Pick a person");const name=$("#enroll-name").value.trim();if(!name)return toast("Enter a name");
-const role=$("#enroll-role").value.trim();const live=await api("/api/enroll",{method:"POST",body:JSON.stringify({video:$("#video-path").value,at:$("#tag-at").value,pick:state.selected,name,role})});
-if(live){state.profiles=live.profiles;toast("Enrolled "+name)}else{if(!state.profiles.find(p=>(p.name||p)===name))state.profiles.push({name,role});DEMO.trails[name]={name,num_appearances:5,appearances:DEMO.trails.Marcus.appearances.slice(0,5)};toast("Demo enrolled "+name)}
+$("#btn-enroll").onclick=async()=>{if(!state.selected.size)return toast("Pick at least one person");const name=$("#enroll-name").value.trim();if(!name)return toast("Enter a name");
+const role=$("#enroll-role").value.trim();const picks=[...state.selected];
+const live=await api("/api/enroll",{method:"POST",body:JSON.stringify({video:$("#video-path").value,at:$("#tag-at").value,picks,name,role})});
+if(live){state.profiles=live.profiles;toast(`Enrolled ${name} (${live.crops||picks.length} crops)`)}else{if(!state.profiles.find(p=>(p.name||p)===name))state.profiles.push({name,role});DEMO.trails[name]={name,num_appearances:5,strong:3,possible:2,appearances:DEMO.trails.Marcus.appearances.slice(0,5)};toast("Demo enrolled "+name)}
 $("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("");$("#search-profile").value=name};
+function setProg(show,msg,cur,total,detail){
+  const box=$("#search-progress");box.classList.toggle("hidden",!show);
+  if(!show)return;
+  $("#prog-msg").textContent=msg||"Working…";
+  $("#prog-detail").textContent=detail||((total?`${cur||0} / ${total}`:""));
+  const pct=total?Math.min(100,Math.round(100*(cur||0)/total)): (msg.includes("Match")?90:30);
+  $("#prog-fill").style.width=pct+"%";
+}
+async function pollJob(jobId){
+  for(;;){
+    const job=await api("/api/jobs/"+jobId);
+    if(!job)throw new Error("Lost job");
+    setProg(true,job.message,job.current,job.total,job.detail);
+    if(job.status==="done"){
+      const trail=await api("/api/jobs/"+jobId+"/result");
+      setProg(false);return trail;
+    }
+    if(job.status==="error"){setProg(false);throw new Error(job.error||"Search failed")}
+    await new Promise(r=>setTimeout(r,900));
+  }
+}
 $("#btn-search").onclick=async()=>{const profile=$("#search-profile").value,start=$("#search-start").value||"20:00",end=$("#search-end").value||"03:00",source=($("#search-source")&&$("#search-source").value)||"nvr";
-const btn=$("#btn-search");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';
-let trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end,source})});
-if(!trail){trail={...(DEMO.trails[profile]||{name:profile,num_appearances:0,appearances:[]}),window:{start,end},source_mode:source,demo:true};toast("Demo trail")}
-renderTrail(trail);btn.disabled=false;btn.textContent="Search all cameras";showTab("search")};
+const btn=$("#btn-search");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';showTab("search");setProg(true,"Starting…",0,1,"");
+try{
+  let trail=null;
+  const started=await api("/api/search/start",{method:"POST",body:JSON.stringify({profile,start,end,source})});
+  if(started&&started.job_id){trail=await pollJob(started.job_id)}
+  else{
+    trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end,source})});
+    if(!trail){trail={...(DEMO.trails[profile]||{name:profile,num_appearances:0,appearances:[]}),window:{start,end},source_mode:source,demo:true};toast("Demo trail")}
+  }
+  if(trail)renderTrail(trail);
+}catch(e){toast(String(e.message||e));setProg(false)}
+btn.disabled=false;btn.textContent="Search all cameras"};
 function hms(s){s=Math.max(0,Math.floor(s||0));const m=Math.floor(s/60),sec=s%60;return String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0")}
 function renderTrail(trail){const box=$("#trail-results");if(!trail.num_appearances){box.innerHTML='<div class="empty-state"><strong>No appearances</strong></div>';return}
 const cams={};trail.appearances.forEach(a=>cams[a.camera]=(cams[a.camera]||0)+1);
-box.innerHTML=`<h2>${trail.name}</h2><div class="meta">${trail.demo?"Demo · ":""}${trail.source_mode?trail.source_mode+" · ":""}${trail.window?.start||""} → ${trail.window?.end||""}</div>
-<div class="trail-summary"><div class="stat"><div class="v">${trail.num_appearances}</div><div class="k">Appearances</div></div>
-<div class="stat"><div class="v">${Object.keys(cams).length}</div><div class="k">Cameras</div></div></div>
+const name=trail.name;
+box.innerHTML=`<h2>${name}</h2><div class="meta">${trail.demo?"Demo · ":""}${trail.source_mode?trail.source_mode+" · ":""}${trail.window?.start||""} → ${trail.window?.end||""}</div>
+<div class="trail-summary">
+<div class="stat"><div class="v">${trail.num_appearances}</div><div class="k">Appearances</div></div>
+<div class="stat"><div class="v">${trail.strong??"—"}</div><div class="k">Strong</div></div>
+<div class="stat"><div class="v">${trail.possible??"—"}</div><div class="k">Possible</div></div>
+<div class="stat"><div class="v">${Object.keys(cams).length}</div><div class="k">Cameras</div></div>
+</div>
 <div>${Object.entries(cams).map(([c,n])=>`<span class="chip"><strong>${c}</strong> · ${n}</span>`).join("")}</div>
-<div style="margin-top:1rem">${trail.appearances.map((a,i)=>`<div class="appear"><div class="num">${i+1}</div><div><div class="cam">${a.camera}</div><div class="when">${hms(a.start_s)} → ${hms(a.end_s)}</div></div><div class="score">${(a.score||0).toFixed(2)}</div></div>`).join("")}</div>`}
-async function loadTrails(){let trails=await api("/api/trails");if(!trails)trails=Object.values(DEMO.trails).map(t=>({name:t.name,num_appearances:t.num_appearances}));
-const box=$("#trails-list");box.innerHTML=trails.map(t=>`<div class="card" style="cursor:pointer;margin-bottom:.5rem" data-t="${t.name}"><strong>${t.name}</strong> · ${t.num_appearances??"—"} appearances</div>`).join("")||'<div class="empty-state">No trails yet</div>';
+<div style="margin-top:1rem">${trail.appearances.map((a,i)=>{
+  const tier=a.confidence||(a.score>=0.65?"strong":a.score>=0.5?"possible":"weak");
+  const clip=a.clip?`<div class="clipbox"><video controls preload="none" src="/media/trails/${encodeURIComponent(name)}/${a.clip}"></video></div>`:"";
+  return `<div class="appear"><div class="num">${i+1}</div><div><div class="cam">${a.camera}</div><div class="when">${hms(a.start_s)} → ${hms(a.end_s)}</div>${clip}</div><div><span class="tier ${tier}">${tier}</span><div class="when" style="text-align:right;margin-top:.25rem">${(a.score||0).toFixed(2)}</div></div></div>`;
+}).join("")}</div>`}
+async function loadTrails(){let trails=await api("/api/trails");if(!trails)trails=Object.values(DEMO.trails).map(t=>({name:t.name,num_appearances:t.num_appearances,strong:t.strong,possible:t.possible}));
+const box=$("#trails-list");box.innerHTML=trails.map(t=>`<div class="card" style="cursor:pointer;margin-bottom:.5rem" data-t="${t.name}"><strong>${t.name}</strong> · ${t.num_appearances??"—"} appearances${t.strong!=null?` · ${t.strong} strong`:""}</div>`).join("")||'<div class="empty-state">No trails yet</div>';
 $$("[data-t]").forEach(el=>el.onclick=async()=>{let trail=await api("/api/trails/"+el.dataset.t);if(!trail)trail=DEMO.trails[el.dataset.t];if(trail){renderTrail(trail);showTab("search")}})}
 boot();
 </script>

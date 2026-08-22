@@ -1,9 +1,10 @@
-# AI No Key — mac branch (Say Less)
+# Night Trail (mac branch)
 
 Tag someone in one frame. Search every mapped camera for a time window (e.g. 8pm–3am).
 
-**Default: NVR pull** — only the window you ask for, only mapped cameras.  
-**Backup: local drop-in** — clips already under `data/cameras/`.
+**Formerly:** AI No Key  
+**Default:** NVR pull — only the window you ask for, only mapped cameras.  
+**Backup:** local drop-in under `data/cameras/`.
 
 ---
 
@@ -12,74 +13,49 @@ Tag someone in one frame. Search every mapped camera for a time window (e.g. 8pm
 ```bash
 git clone -b mac https://github.com/keykeyg/ai-NO-key.git
 cd ai-NO-key
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-chmod +x "AI No Key.command"
 ```
 
-1. Double-click **AI No Key.command**
-2. First-run wizard → UniFi host / username / password / timezone
-3. Tag a person from a clip → enroll with a name
-4. Search `20:00` → `03:00` (Source = NVR pull)
+1. Double-click **Install AI No Key.command** (one time — venv + OSNet)
+2. Optional: **Build AI No Key App.command** after `brew install --cask platypus`
+3. Double-click **AI No Key.command** (or the .app)
+4. Wizard → UniFi host / user / password → **Test connection**
+5. Tag a person (multi-select crops) → enroll → Search `20:00` → `03:00`
 
-Browser opens at http://127.0.0.1:8787
-
----
-
-## What “window” means
-
-The start/end you type. Example: `20:00` to `03:00` = last night’s shift.  
-NVR mode pulls **only that span** from Protect (15-min chunks), not the whole archive.
+UI: http://127.0.0.1:8787
 
 ---
 
-## Mapped Say Less cameras (priority)
+## What’s new in this ship
 
-| Protect name | Folder |
-|---|---|
-| Hookah Room | hookah_room |
-| Downstairs Across Hookah D1 | hookah_across |
-| Downstairs Corner Hightops D4 | hightops |
-| Downstairs Above Fireplace D2 | fireplace |
-| Downstairs Main Bar D7 | bar_main_d |
-| Downstairs Server Bar D8 | server_bar |
-| Downstairs D9 server bar 2nd cam | server_bar_2 |
-| First Floor Front Patio D6 | patio_front |
-| Upstairs Facing Bar U7 | bar_facing_u |
-| Upstairs Corner Near Balcony Door U6 | lounge_corner |
-| Upstairs Facing Balcony Door U5 | lounge_balcony |
-| Balcony | balcony |
-| + kitchen / elevator / office (see config.example.yaml) |
+- **Progress** while NVR pulls and detects (no more black-box spinner)
+- **Test connection** for UniFi / Frigate
+- **OSNet status** in the top bar (strong model vs weak fallback)
+- **Confidence tiers** on each appearance: strong / possible
+- **Clip playback** in the trail view
+- **Multi-crop enroll** (select several people crops for one profile)
+- **Search audit log** at `data/output/audit/searches.jsonl`
 
-Rename remaining `G5 Turret Ultra` kitchen cams in Protect, then add exact names to config.
+---
+
+## Mapped Say Less cameras
+
+See `config.example.yaml` for the full Protect name → folder map (hookah, bars, patio, upstairs, kitchen…).
 
 ---
 
 ## CLI
 
 ```bash
-# NVR search (default) — pulls only the window from mapped cams
 python scripts/search_person.py --profile Marcus --start 20:00 --end 03:00
-
-# Local backup (pre-dropped clips)
 python scripts/search_person.py --profile Marcus --start 20:00 --end 03:00 --source local
-
-# Just pull footage for a window
 python scripts/pull_nvr.py --start 20:00 --end 03:00
 ```
 
 ---
 
-## Requirements for NVR mode
+## Requirements
 
-- Mac can reach Say Less Protect (LAN or VPN)
-- UniFi username/password saved in wizard (`.unifi.env`)
+- Mac reaches Say Less Protect (LAN or VPN)
+- UniFi login in wizard
 - Camera names in config match Protect **exactly**
-
----
-
-## Branches
-
-- `mac` — Apple Silicon (MPS), this README
-- `windows` — CUDA / 3090
-- `main` — portable fallback
+- OSNet installed via Install script for best accuracy

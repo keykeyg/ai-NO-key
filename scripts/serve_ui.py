@@ -36,6 +36,91 @@ def _pipeline_ok() -> bool:
 
 LIVE = _pipeline_ok()
 
+def _cfg_path() -> Path:
+    return ROOT / "config.yaml"
+
+def _secrets_path() -> Path:
+    return ROOT / ".unifi.env"
+
+def _example_cfg() -> Path:
+    return ROOT / "config.example.yaml"
+
+def setup_status() -> dict:
+    cfg_p = _cfg_path()
+    sec_p = _secrets_path()
+    configured = cfg_p.exists()
+    has_secrets = sec_p.exists()
+    host = ""
+    timezone = "America/Chicago"
+    nvr_type = "unifi"
+    if configured:
+        try:
+            import yaml
+            data = yaml.safe_load(cfg_p.read_text()) or {}
+            nvr = data.get("nvr") or {}
+            host = nvr.get("host") or ""
+            timezone = data.get("timezone") or timezone
+            nvr_type = nvr.get("type") or nvr_type
+        except Exception:
+            pass
+    return {
+        "configured": configured and bool(host or has_secrets),
+        "has_config": configured,
+        "has_secrets": has_secrets,
+        "host": host,
+        "timezone": timezone,
+        "nvr_type": nvr_type,
+        "username_set": has_secrets,
+    }
+
+def save_setup(body: dict) -> dict:
+    import yaml
+    host = (body.get("host") or "").strip()
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    timezone = (body.get("timezone") or "America/Chicago").strip()
+    nvr_type = (body.get("nvr_type") or "unifi").strip().lower()
+    port = int(body.get("port") or (5000 if nvr_type == "frigate" else 443))
+
+    cfg_p = _cfg_path()
+    if cfg_p.exists():
+        data = yaml.safe_load(cfg_p.read_text()) or {}
+    elif _example_cfg().exists():
+        data = yaml.safe_load(_example_cfg().read_text()) or {}
+    else:
+        data = {}
+
+    data["timezone"] = timezone
+    nvr = data.get("nvr") or {}
+    nvr["type"] = nvr_type
+    nvr["host"] = host
+    nvr["port"] = port
+    nvr["username"] = ""
+    nvr["password"] = ""
+    data["nvr"] = nvr
+    cfg_p.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
+
+    if username or password or host:
+        import os
+        if nvr_type == "frigate":
+            lines = [f'export FRIGATE_HOST="{host}"', f'export FRIGATE_PORT="{port}"']
+            os.environ["FRIGATE_HOST"] = host
+            os.environ["FRIGATE_PORT"] = str(port)
+        else:
+            lines = [
+                f'export UNIFI_HOST="{host}"',
+                f'export UNIFI_USERNAME="{username}"',
+                f'export UNIFI_PASSWORD="{password}"',
+            ]
+            os.environ["UNIFI_HOST"] = host
+            os.environ["UNIFI_USERNAME"] = username
+            os.environ["UNIFI_PASSWORD"] = password
+        _secrets_path().write_text("\n".join(lines) + "\n")
+
+    global CFG
+    CFG = _load_cfg("config.yaml")
+    return setup_status()
+
 def _json(h: BaseHTTPRequestHandler, code: int, payload: Any) -> None:
     body = json.dumps(payload).encode()
     h.send_response(code)
@@ -206,7 +291,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/api/status":
-            return _json(self, 200, api_status())
+            return _json(self, 200, {**api_status(), "setup": setup_status()})
+        if path == "/api/setup":
+            return _json(self, 200, setup_status())
         if path == "/api/cameras":
             return _json(self, 200, {"cameras": list_cameras()})
         if path == "/api/profiles":
@@ -236,6 +323,8 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             body = _read_json(self)
+            if path == "/api/setup":
+                return _json(self, 200, save_setup(body))
             if path == "/api/tag":
                 return _json(self, 200, api_tag(body))
             if path == "/api/enroll":

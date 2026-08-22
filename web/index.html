@@ -1,133 +1,136 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI No Key — Tag &amp; Trail</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AI No Key — Tag & Trail</title>
+<style>
+:root{--bg:#0b0d12;--bg2:#12151c;--bg3:#1a1f2a;--border:#2a3140;--text:#e8eaed;--muted:#8b93a7;--accent:#5eead4;--accent-dim:#2dd4bf33;--warn:#fbbf24;--ok:#34d399;--radius:12px}
+*{box-sizing:border-box;margin:0;padding:0}html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;font-size:14px}
+button,input,select{font:inherit;color:inherit}#app{min-height:100%;display:grid;grid-template-rows:auto 1fr}
+.topbar{display:flex;align-items:center;gap:1rem;padding:.85rem 1.25rem;border-bottom:1px solid var(--border);background:#12151c}
+.brand{display:flex;align-items:center;gap:.65rem;font-weight:650}.brand-mark{width:28px;height:28px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#99f6e4,#0d9488)}
+.brand span{color:var(--accent)}.tabs{display:flex;gap:.25rem;margin-left:1rem}
+.tab{background:0;border:1px solid transparent;color:var(--muted);padding:.45rem .9rem;border-radius:999px;cursor:pointer}
+.tab.active{color:var(--accent);border-color:#2dd4bf44;background:var(--accent-dim)}
+.status-pill{margin-left:auto;display:flex;align-items:center;gap:.5rem;padding:.35rem .75rem;border-radius:999px;border:1px solid var(--border);background:var(--bg2);color:var(--muted);font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}.dot.live{background:var(--ok)}.dot.demo{background:var(--warn)}
+.main{display:grid;grid-template-columns:300px 1fr;min-height:0}@media(max-width:900px){.main{grid-template-columns:1fr}}
+.sidebar{border-right:1px solid var(--border);background:var(--bg2);padding:1rem;display:flex;flex-direction:column;gap:1rem;overflow:auto}
+.panel{padding:1.25rem;overflow:auto}.card{background:var(--bg3);border:1px solid var(--border);border-radius:12px;padding:.9rem}
+.card h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:.75rem}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:.3rem}.field{margin-bottom:.75rem}
+input,select{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:.55rem .7rem}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.btn{border:1px solid var(--border);background:var(--bg);color:var(--text);border-radius:8px;padding:.55rem .9rem;cursor:pointer;width:100%}
+.btn-primary{background:linear-gradient(180deg,#2dd4bf,#14b8a6);border-color:#0f766e;color:#042f2e;font-weight:650}
+.hint{font-size:12px;color:var(--muted);margin-top:.35rem}
+.frame-wrap{background:#000;border:1px solid var(--border);border-radius:12px;min-height:320px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.frame-wrap img{max-width:100%;max-height:55vh}.frame-empty{color:var(--muted);text-align:center;padding:2rem}
+.people-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:.75rem;margin-top:.75rem}
+.person-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer}
+.person-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px #2dd4bf44}
+.person-card img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}
+.person-card .info{padding:.4rem .5rem;display:flex;justify-content:space-between;font-size:12px}
+.person-card .idx{color:var(--accent);font-weight:700}
+.trail-summary{display:flex;flex-wrap:wrap;gap:.75rem;margin:1rem 0}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:.7rem .9rem;min-width:110px}
+.stat .v{font-size:1.3rem;font-weight:700;color:var(--accent)}.stat .k{font-size:11px;color:var(--muted);text-transform:uppercase}
+.appear{display:grid;grid-template-columns:32px 1fr auto;gap:.75rem;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:.7rem .9rem;margin-bottom:.5rem}
+.appear .num{width:28px;height:28px;border-radius:8px;background:var(--accent-dim);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:12px}
+.appear .cam{font-weight:600}.appear .when{color:var(--muted);font-size:12px}.appear .score{color:var(--ok);font-weight:650}
+.chip{font-size:12px;padding:.25rem .55rem;border-radius:999px;background:var(--bg3);border:1px solid var(--border);color:var(--muted);margin:0 .3rem .3rem 0;display:inline-block}
+.chip strong{color:var(--text)}.empty-state{border:1px dashed var(--border);border-radius:12px;padding:2rem;text-align:center;color:var(--muted)}
+.toast{position:fixed;bottom:1rem;right:1rem;background:var(--bg3);border:1px solid var(--border);padding:.7rem 1rem;border-radius:10px;opacity:0;transition:.2s;z-index:50}
+.toast.show{opacity:1}.hidden{display:none!important}.loading{display:inline-block;width:14px;height:14px;border:2px solid #2dd4bf55;border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}h2{font-size:1.15rem;margin-bottom:.25rem}.meta{color:var(--muted);font-size:13px}
+</style></head>
 <body>
-  <div id="app">
-    <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark"></div>
-        AI <span>No Key</span>
-      </div>
-      <nav class="tabs">
-        <button class="tab active" data-tab="tag">Tag</button>
-        <button class="tab" data-tab="search">Search</button>
-        <button class="tab" data-tab="trails">Trails</button>
-      </nav>
-      <div class="status-pill" id="status-pill">
-        <span class="dot demo"></span>
-        <span id="status-label">Connecting…</span>
-      </div>
-    </header>
-
-    <div class="main">
-      <!-- SIDEBAR -->
-      <aside class="sidebar">
-        <!-- Tag controls -->
-        <div class="card" id="side-tag">
-          <h3>Tag from frame</h3>
-          <div class="field">
-            <label for="video-path">Camera clip</label>
-            <select id="video-path"></select>
-          </div>
-          <div class="field">
-            <label for="tag-at">Timestamp (seconds or HH:MM:SS)</label>
-            <input id="tag-at" type="text" value="5" placeholder="5" />
-          </div>
-          <button class="btn btn-primary" id="btn-tag">Detect people</button>
-          <p class="hint">Uses YOLO on the local pipeline when live. Demo otherwise.</p>
-        </div>
-
-        <div class="card hidden" id="enroll-box">
-          <h3>Enroll selection</h3>
-          <p class="hint" id="pick-label" style="margin-bottom:0.6rem">Click a person below</p>
-          <div class="field">
-            <label for="enroll-name">Name</label>
-            <input id="enroll-name" type="text" placeholder="Marcus" />
-          </div>
-          <div class="field">
-            <label for="enroll-role">Role</label>
-            <input id="enroll-role" type="text" placeholder="hookah / bartender / manager" />
-          </div>
-          <button class="btn btn-primary" id="btn-enroll">Save profile</button>
-        </div>
-
-        <!-- Search controls -->
-        <div class="card">
-          <h3>Search window</h3>
-          <div class="field">
-            <label for="search-profile">Profile</label>
-            <select id="search-profile"></select>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label for="search-start">Start</label>
-              <input id="search-start" type="text" value="21:00" />
-            </div>
-            <div class="field">
-              <label for="search-end">End</label>
-              <input id="search-end" type="text" value="03:00" />
-            </div>
-          </div>
-          <button class="btn btn-primary" id="btn-search">Search night</button>
-          <p class="hint">Bare 21:00–03:00 resolves to last night. Pass full dates to pin a night.</p>
-        </div>
-      </aside>
-
-      <!-- PANEL -->
-      <section class="panel">
-        <!-- TAG VIEW -->
-        <div id="view-tag" class="stage">
-          <div class="stage-header">
-            <div>
-              <h2>Frame tag</h2>
-              <div class="meta" id="tag-meta">Pick a clip and detect people</div>
-            </div>
-          </div>
-          <div class="frame-wrap">
-            <div class="frame-empty" id="frame-empty">
-              <strong style="color:var(--text);display:block;margin-bottom:0.4rem">No frame yet</strong>
-              Detect people on a camera clip to number everyone in the shot.
-            </div>
-            <img id="overview-img" class="hidden" alt="Tagged frame" />
-          </div>
-          <div>
-            <h3 style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.6rem">People</h3>
-            <div class="people-grid" id="people-grid"></div>
-          </div>
-        </div>
-
-        <!-- SEARCH / TRAIL VIEW -->
-        <div id="view-search" class="hidden">
-          <div id="trail-results">
-            <div class="empty-state">
-              <strong>Person trail</strong>
-              Tag someone, then search a time window. Appearances across cameras show up here.
-            </div>
-          </div>
-        </div>
-
-        <!-- TRAILS LIST -->
-        <div id="view-trails" class="hidden">
-          <div class="stage-header" style="margin-bottom:1rem">
-            <div>
-              <h2>Saved trails</h2>
-              <div class="meta">Click a person to open their night</div>
-            </div>
-          </div>
-          <div id="trails-list"></div>
-        </div>
-      </section>
-    </div>
-  </div>
-
-  <div id="toast" class="toast"></div>
-
-  <script src="demo-data.js"></script>
-  <script src="app.js"></script>
-</body>
-</html>
+<div id="app">
+<header class="topbar">
+<div class="brand"><div class="brand-mark"></div>AI <span>No Key</span></div>
+<nav class="tabs">
+<button class="tab active" data-tab="tag">Tag</button>
+<button class="tab" data-tab="search">Search</button>
+<button class="tab" data-tab="trails">Trails</button>
+</nav>
+<div class="status-pill" id="status-pill"><span class="dot demo"></span><span id="status-label">Connecting…</span></div>
+</header>
+<div class="main">
+<aside class="sidebar">
+<div class="card"><h3>Tag from frame</h3>
+<div class="field"><label>Camera clip</label><select id="video-path"></select></div>
+<div class="field"><label>Timestamp</label><input id="tag-at" value="5"/></div>
+<button class="btn btn-primary" id="btn-tag">Detect people</button>
+<p class="hint">Live = YOLO on this machine. Demo works offline.</p></div>
+<div class="card hidden" id="enroll-box"><h3>Enroll</h3>
+<p class="hint" id="pick-label">Click a person</p>
+<div class="field"><label>Name</label><input id="enroll-name" placeholder="Marcus"/></div>
+<div class="field"><label>Role</label><input id="enroll-role" placeholder="hookah"/></div>
+<button class="btn btn-primary" id="btn-enroll">Save profile</button></div>
+<div class="card"><h3>Search window</h3>
+<div class="field"><label>Profile</label><select id="search-profile"></select></div>
+<div class="row"><div class="field"><label>Start</label><input id="search-start" value="21:00"/></div>
+<div class="field"><label>End</label><input id="search-end" value="03:00"/></div></div>
+<button class="btn btn-primary" id="btn-search">Search night</button>
+<p class="hint">21:00–03:00 = last night</p></div>
+</aside>
+<section class="panel">
+<div id="view-tag">
+<div><h2>Frame tag</h2><div class="meta" id="tag-meta">Pick a clip</div></div>
+<div class="frame-wrap" style="margin:1rem 0">
+<div class="frame-empty" id="frame-empty">Detect people to number everyone in the shot.</div>
+<img id="overview-img" class="hidden" alt="frame"/>
+</div>
+<div class="people-grid" id="people-grid"></div>
+</div>
+<div id="view-search" class="hidden"><div id="trail-results"><div class="empty-state"><strong>Person trail</strong>Tag + search a window.</div></div></div>
+<div id="view-trails" class="hidden"><h2>Saved trails</h2><div id="trails-list" style="margin-top:1rem"></div></div>
+</section>
+</div></div>
+<div id="toast" class="toast"></div>
+<script src="demo-data.js"></script>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const state={mode:"demo",cameras:[],profiles:[],selected:null};
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2500)}
+async function api(path,opts={}){try{const r=await fetch(path,{headers:{"Content-Type":"application/json"},...opts});if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||r.statusText);return await r.json()}catch(e){return path.startsWith("/api/")?null:Promise.reject(e)}}
+async function boot(){const s=await api("/api/status");if(s){state.mode=s.mode;state.cameras=s.cameras||[];state.profiles=s.profiles||[]}else{state.cameras=DEMO.cameras;state.profiles=DEMO.profiles}
+$(".dot").className="dot "+(state.mode==="live"?"live":"demo");
+$("#status-label").textContent=state.mode==="live"?`Live · ${s.device}`:"Demo mode";
+const vs=$("#video-path");vs.innerHTML="";state.cameras.forEach(c=>{const o=document.createElement("option");o.value=c.path||`data/cameras/${c.name}/${c.sample||""}`;o.textContent=c.sample?`${c.name} · ${c.sample}`:c.name;if((c.sample||"").includes("Hookah")||c.name==="hookah")o.selected=true;vs.appendChild(o)});
+$("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("")||"<option>No profiles</option>";
+}
+function showTab(n){$$(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===n));
+$("#view-tag").classList.toggle("hidden",n!=="tag");$("#view-search").classList.toggle("hidden",n!=="search");$("#view-trails").classList.toggle("hidden",n!=="trails");
+if(n==="trails")loadTrails()}
+$$(".tab").forEach(t=>t.onclick=()=>showTab(t.dataset.tab));
+$("#btn-tag").onclick=async()=>{const btn=$("#btn-tag");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';
+const video=$("#video-path").value,at=$("#tag-at").value||"5";
+let session=await api("/api/tag",{method:"POST",body:JSON.stringify({video,at})});
+if(!session){const canvas=document.createElement("canvas");const people=DEMO.tagPeople.map(p=>({...p,crop_b64:drawDemoCrop(p)}));session={at_s:+at||5,overview_b64:drawDemoFrame(canvas,DEMO.tagPeople),num_people:people.length,people,demo:true};toast("Demo tag")}
+$("#tag-meta").textContent=session.num_people+" people @ "+session.at_s+"s";
+const img=$("#overview-img");img.src=session.overview_b64.startsWith("data:")?session.overview_b64:"data:image/jpeg;base64,"+session.overview_b64;img.classList.remove("hidden");$("#frame-empty").classList.add("hidden");
+const grid=$("#people-grid");grid.innerHTML="";session.people.forEach(p=>{const d=document.createElement("div");d.className="person-card";d.innerHTML=`<img src="${p.crop_b64.startsWith("data:")?p.crop_b64:"data:image/jpeg;base64,"+p.crop_b64}"/><div class="info"><span class="idx">#${p.index}</span><span>${(p.conf*100).toFixed(0)}%</span></div>`;d.onclick=()=>{state.selected=p.index;$$(".person-card").forEach(x=>x.classList.remove("selected"));d.classList.add("selected");$("#pick-label").textContent="Selected #"+p.index};grid.appendChild(d)});
+$("#enroll-box").classList.remove("hidden");btn.disabled=false;btn.textContent="Detect people";state._session=session};
+$("#btn-enroll").onclick=async()=>{if(state.selected==null)return toast("Pick a person");const name=$("#enroll-name").value.trim();if(!name)return toast("Enter a name");
+const role=$("#enroll-role").value.trim();const live=await api("/api/enroll",{method:"POST",body:JSON.stringify({video:$("#video-path").value,at:$("#tag-at").value,pick:state.selected,name,role})});
+if(live){state.profiles=live.profiles;toast("Enrolled "+name)}else{if(!state.profiles.find(p=>(p.name||p)===name))state.profiles.push({name,role});DEMO.trails[name]={name,num_appearances:5,appearances:DEMO.trails.Marcus.appearances.slice(0,5)};toast("Demo enrolled "+name)}
+$("#search-profile").innerHTML=state.profiles.map(p=>`<option>${p.name||p}</option>`).join("");$("#search-profile").value=name};
+$("#btn-search").onclick=async()=>{const profile=$("#search-profile").value,start=$("#search-start").value||"21:00",end=$("#search-end").value||"03:00";
+const btn=$("#btn-search");btn.disabled=true;btn.innerHTML='<span class="loading"></span>';
+let trail=await api("/api/search",{method:"POST",body:JSON.stringify({profile,start,end})});
+if(!trail){trail={...(DEMO.trails[profile]||{name:profile,num_appearances:0,appearances:[]}),window:{start,end},demo:true};toast("Demo trail")}
+renderTrail(trail);btn.disabled=false;btn.textContent="Search night";showTab("search")};
+function hms(s){s=Math.max(0,Math.floor(s||0));const m=Math.floor(s/60),sec=s%60;return String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0")}
+function renderTrail(trail){const box=$("#trail-results");if(!trail.num_appearances){box.innerHTML='<div class="empty-state"><strong>No appearances</strong></div>';return}
+const cams={};trail.appearances.forEach(a=>cams[a.camera]=(cams[a.camera]||0)+1);
+box.innerHTML=`<h2>${trail.name}</h2><div class="meta">${trail.demo?"Demo · ":""}${trail.window?.start||""} → ${trail.window?.end||""}</div>
+<div class="trail-summary"><div class="stat"><div class="v">${trail.num_appearances}</div><div class="k">Appearances</div></div>
+<div class="stat"><div class="v">${Object.keys(cams).length}</div><div class="k">Cameras</div></div></div>
+<div>${Object.entries(cams).map(([c,n])=>`<span class="chip"><strong>${c}</strong> · ${n}</span>`).join("")}</div>
+<div style="margin-top:1rem">${trail.appearances.map((a,i)=>`<div class="appear"><div class="num">${i+1}</div><div><div class="cam">${a.camera}</div><div class="when">${hms(a.start_s)} → ${hms(a.end_s)}</div></div><div class="score">${(a.score||0).toFixed(2)}</div></div>`).join("")}</div>`}
+async function loadTrails(){let trails=await api("/api/trails");if(!trails)trails=Object.values(DEMO.trails).map(t=>({name:t.name,num_appearances:t.num_appearances}));
+const box=$("#trails-list");box.innerHTML=trails.map(t=>`<div class="card" style="cursor:pointer;margin-bottom:.5rem" data-t="${t.name}"><strong>${t.name}</strong> · ${t.num_appearances??"—"} appearances</div>`).join("")||'<div class="empty-state">No trails yet</div>';
+$$("[data-t]").forEach(el=>el.onclick=async()=>{let trail=await api("/api/trails/"+el.dataset.t);if(!trail)trail=DEMO.trails[el.dataset.t];if(trail){renderTrail(trail);showTab("search")}})}
+boot();
+</script>
+</body></html>

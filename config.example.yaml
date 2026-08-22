@@ -1,5 +1,6 @@
 # AI No Key — Mac / Apple Silicon optimized
 # Branch: mac
+# Say Less NVR — camera names from UniFi Protect (exact)
 
 cameras_root: "data/cameras"
 output_dir: "data/output"
@@ -27,43 +28,107 @@ reid:
   max_time_gap_seconds: 420
   device: "mps"
 
-# UniFi Protect / Frigate — used when source_mode is nvr
+# UniFi Protect — Say Less NVR
+# Protect camera name (exact) → local folder short name
 nvr:
-  type: unifi                 # unifi | frigate
-  host: "192.168.1.1"         # Protect / UniFi OS IP (or reachable hostname)
+  type: unifi
+  host: "192.168.1.1"         # set to your Protect / UniFi OS IP
   port: 443
   username: ""                # or env UNIFI_USERNAME / .unifi.env
   password: ""                # or env UNIFI_PASSWORD / .unifi.env
   verify_ssl: false
-  chunk_minutes: 15           # pull in 15-min pieces so you never download 90GB at once
-  cameras:                    # Protect camera name → local folder
-    "Downstairs Across Hookah D1": hookah
-    "Bar Main": bar_main
-    "Bar Service": bar_service
-    "Kitchen": kitchen
-    "Office": office
-    "Entrance": entrance
-    "Patio": patio
+  chunk_minutes: 15
+  cameras:
+    # --- Priority: downstairs hookah + back area ---
+    "Hookah Room": hookah_room
+    "Downstairs Across Hookah D1": hookah_across
+    "Downstairs Corner Hightops D4": hightops
+
+    # --- Downstairs bar / floor ---
+    "Downstairs Main Bar D7": bar_main_d
+    "Downstairs Corner Above Main Bar D3": bar_main_overview
+    "Downstairs Above Fireplace D2": fireplace
+    "Downstairs Server Bar D8": server_bar
+    "Downstairs D9 server bar 2nd cam": server_bar_2
+    "Downstairs main bar hall view D10": bar_hall
+    "First Floor Front Patio D6": patio_front
+
+    # --- Upstairs bar / lounge ---
+    "Upstairs Main Bar U4": bar_main_u
+    "Upstairs Facing Bar U7": bar_facing_u
+    "Upstairs Above Server Station U3": server_u
+    "Upstairs Facing Balcony Door U5": lounge_balcony
+    "Upstairs Corner Near Balcony Door U6": lounge_corner
+    "Balcony": balcony
+
+    # --- Transitions / back of house ---
+    "Elevator": elevator
+    "Upstairs Above Liquor Cage U2": liquor_hall
+    "Upstairs Above Office Door U1": office_door
+    "Office U8": office
+    "Kitchen Ice Machine Area K1": kitchen_ice
+    "Rooftop Hookah Station R1": rooftop_hookah
+    "Hookah Storage Closet": hookah_storage
+    "Upstairs Storage U9": storage_u
 
 topology:
   enabled: true
   max_transition_seconds: 180
   cameras:
-    - bar_main
-    - bar_service
-    - hookah
-    - kitchen
+    - hookah_room
+    - hookah_across
+    - hightops
+    - bar_main_d
+    - bar_main_overview
+    - fireplace
+    - server_bar
+    - server_bar_2
+    - bar_hall
+    - patio_front
+    - bar_main_u
+    - bar_facing_u
+    - server_u
+    - lounge_balcony
+    - lounge_corner
+    - balcony
+    - elevator
+    - liquor_hall
+    - office_door
     - office
-    - entrance
-    - patio
+    - kitchen_ice
+    - rooftop_hookah
   transitions:
-    bar_main: [bar_service, hookah, entrance, patio]
-    bar_service: [bar_main, kitchen]
-    hookah: [bar_main, entrance, patio]
-    kitchen: [bar_service, office]
-    office: [kitchen]
-    entrance: [bar_main, hookah, patio]
-    patio: [bar_main, hookah, entrance]
+    # Downstairs hookah cluster
+    hookah_room: [hookah_across, hightops, bar_main_d]
+    hookah_across: [hookah_room, hightops, fireplace, bar_main_d]
+    hightops: [hookah_across, fireplace, bar_main_d, elevator]
+
+    # Downstairs bar path
+    bar_main_d: [bar_main_overview, server_bar, bar_hall, fireplace, patio_front, hookah_across]
+    bar_main_overview: [bar_main_d, fireplace, patio_front]
+    fireplace: [bar_main_d, hightops, bar_main_overview]
+    server_bar: [bar_main_d, server_bar_2, bar_hall, kitchen_ice]
+    server_bar_2: [server_bar, bar_hall]
+    bar_hall: [bar_main_d, server_bar, elevator]
+    patio_front: [bar_main_d, bar_main_overview]
+
+    # Vertical transitions
+    elevator: [hightops, bar_hall, liquor_hall, office_door, bar_main_u]
+
+    # Upstairs
+    bar_main_u: [bar_facing_u, server_u, lounge_balcony, elevator]
+    bar_facing_u: [bar_main_u, server_u, liquor_hall]
+    server_u: [bar_main_u, bar_facing_u]
+    lounge_balcony: [bar_main_u, lounge_corner, balcony]
+    lounge_corner: [lounge_balcony, balcony]
+    balcony: [lounge_balcony, lounge_corner]
+    liquor_hall: [elevator, bar_facing_u, office_door]
+    office_door: [elevator, liquor_hall, office]
+    office: [office_door]
+
+    # Kitchen / rooftop
+    kitchen_ice: [server_bar]
+    rooftop_hookah: [balcony]
 
 save_track_clips: true
 clip_padding_seconds: 1.5

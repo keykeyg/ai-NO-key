@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI No Key — Tag &amp; Trail</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        AI <span>No Key</span>
+      </div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="tag">Tag</button>
+        <button class="tab" data-tab="search">Search</button>
+        <button class="tab" data-tab="trails">Trails</button>
+      </nav>
+      <div class="status-pill" id="status-pill">
+        <span class="dot demo"></span>
+        <span id="status-label">Connecting…</span>
+      </div>
+    </header>
+
+    <div class="main">
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <!-- Tag controls -->
+        <div class="card" id="side-tag">
+          <h3>Tag from frame</h3>
+          <div class="field">
+            <label for="video-path">Camera clip</label>
+            <select id="video-path"></select>
+          </div>
+          <div class="field">
+            <label for="tag-at">Timestamp (seconds or HH:MM:SS)</label>
+            <input id="tag-at" type="text" value="5" placeholder="5" />
+          </div>
+          <button class="btn btn-primary" id="btn-tag">Detect people</button>
+          <p class="hint">Uses YOLO on the local pipeline when live. Demo otherwise.</p>
+        </div>
+
+        <div class="card hidden" id="enroll-box">
+          <h3>Enroll selection</h3>
+          <p class="hint" id="pick-label" style="margin-bottom:0.6rem">Click a person below</p>
+          <div class="field">
+            <label for="enroll-name">Name</label>
+            <input id="enroll-name" type="text" placeholder="Marcus" />
+          </div>
+          <div class="field">
+            <label for="enroll-role">Role</label>
+            <input id="enroll-role" type="text" placeholder="hookah / bartender / manager" />
+          </div>
+          <button class="btn btn-primary" id="btn-enroll">Save profile</button>
+        </div>
+
+        <!-- Search controls -->
+        <div class="card">
+          <h3>Search window</h3>
+          <div class="field">
+            <label for="search-profile">Profile</label>
+            <select id="search-profile"></select>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label for="search-start">Start</label>
+              <input id="search-start" type="text" value="21:00" />
+            </div>
+            <div class="field">
+              <label for="search-end">End</label>
+              <input id="search-end" type="text" value="03:00" />
+            </div>
+          </div>
+          <button class="btn btn-primary" id="btn-search">Search night</button>
+          <p class="hint">Bare 21:00–03:00 resolves to last night. Pass full dates to pin a night.</p>
+        </div>
+      </aside>
+
+      <!-- PANEL -->
+      <section class="panel">
+        <!-- TAG VIEW -->
+        <div id="view-tag" class="stage">
+          <div class="stage-header">
+            <div>
+              <h2>Frame tag</h2>
+              <div class="meta" id="tag-meta">Pick a clip and detect people</div>
+            </div>
+          </div>
+          <div class="frame-wrap">
+            <div class="frame-empty" id="frame-empty">
+              <strong style="color:var(--text);display:block;margin-bottom:0.4rem">No frame yet</strong>
+              Detect people on a camera clip to number everyone in the shot.
+            </div>
+            <img id="overview-img" class="hidden" alt="Tagged frame" />
+          </div>
+          <div>
+            <h3 style="color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.6rem">People</h3>
+            <div class="people-grid" id="people-grid"></div>
+          </div>
+        </div>
+
+        <!-- SEARCH / TRAIL VIEW -->
+        <div id="view-search" class="hidden">
+          <div id="trail-results">
+            <div class="empty-state">
+              <strong>Person trail</strong>
+              Tag someone, then search a time window. Appearances across cameras show up here.
+            </div>
+          </div>
+        </div>
+
+        <!-- TRAILS LIST -->
+        <div id="view-trails" class="hidden">
+          <div class="stage-header" style="margin-bottom:1rem">
+            <div>
+              <h2>Saved trails</h2>
+              <div class="meta">Click a person to open their night</div>
+            </div>
+          </div>
+          <div id="trails-list"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="demo-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

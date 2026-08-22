@@ -28,7 +28,6 @@ def ensure_dir(path: str | Path) -> Path:
 
 
 def list_camera_videos(cameras_root: str | Path) -> Dict[str, List[Path]]:
-    """Return {camera_name: [video_paths]} from a folder structure."""
     root = Path(cameras_root)
     if not root.exists():
         raise FileNotFoundError(f"cameras_root not found: {root}")

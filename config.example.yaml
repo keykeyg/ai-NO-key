@@ -1,48 +1,61 @@
-# AI No Key - Overnight multi-camera tracking config
+# AI No Key — Configuration
+# ========================
+# Optimized for tracking specific staff across many cameras overnight.
 
-# Path to the root folder that contains one subfolder per camera
-# Example structure:
-#   data/cameras/
-#     cam_front/
-#       2026-08-20.mp4
-#     cam_bar/
-#       2026-08-20.mp4
-#     ...
+# Root folder containing one subfolder per camera
+# data/cameras/bar_main/*.mp4
+# data/cameras/hookah/*.mp4
 cameras_root: "data/cameras"
 
-# Output directory for results
+# Where results, trails, and clips are written
 output_dir: "data/output"
 
-# YOLO model (will auto-download on first run)
-# Options: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt
-# For 3090 overnight jobs, yolo11m or yolo11l is a good balance
+# Staff profiles live here
+profiles_dir: "data/profiles"
+
+# YOLO model — yolo11m or yolo11l recommended on 3090
 model: "yolo11m.pt"
-
-# Only track the person class
-classes: [0]
-
-# Confidence threshold
+classes: [0]          # person only
 conf: 0.4
-
-# Tracker (bytetrack.yaml is faster, botsort.yaml is more accurate)
 tracker: "bytetrack.yaml"
+frame_skip: 2         # 1 = every frame (slower, more accurate)
 
-# How many frames to skip between detections (1 = every frame)
-# Higher = faster, lower accuracy. 2-3 is usually fine overnight.
-frame_skip: 2
-
-# Maximum number of cameras to process in parallel (keep low on one GPU)
-max_parallel_cameras: 2
-
-# ReID settings
+# ReID / Identity
 reid:
+  method: "multimodal"          # multimodal = face + body
+  body_method: "enhanced"       # enhanced | osnet (osnet requires extra setup)
+  face_enabled: true
+  match_threshold: 0.52         # lower = more matches (more false positives)
+  strong_match_threshold: 0.68  # high confidence links
+  max_time_gap_seconds: 420     # max gap we allow between linked appearances
+
+# Camera topology — critical for a bar
+# List cameras and which ones people commonly move between.
+topology:
   enabled: true
-  # Simple appearance features for now (can be upgraded to full OSNet later)
-  method: "simple"          # "simple" | "osnet" (osnet needs extra setup)
-  match_threshold: 0.55     # cosine similarity for cross-camera matching
-  max_time_gap_seconds: 300 # only match tracks that could reasonably be the same person
+  max_transition_seconds: 180   # default max travel time between linked cameras
+  cameras:
+    - bar_main
+    - bar_service
+    - hookah
+    - kitchen
+    - office
+    - entrance
+    - patio
+  # Plausible transitions (undirected for simplicity)
+  transitions:
+    bar_main: [bar_service, hookah, entrance, patio]
+    bar_service: [bar_main, kitchen]
+    hookah: [bar_main, entrance, patio]
+    kitchen: [bar_service, office]
+    office: [kitchen]
+    entrance: [bar_main, hookah, patio]
+    patio: [bar_main, hookah, entrance]
+
+# Clip extraction
+save_track_clips: true
+clip_padding_seconds: 1.5
+max_clip_duration: 40
 
 # Logging
 log_level: "INFO"
-save_annotated_videos: false   # set true if you want full annotated MP4s (slow + disk heavy)
-save_track_clips: true         # short clips of each person across cameras (recommended)

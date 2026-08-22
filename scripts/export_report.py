@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn global_report.json into a readable markdown timeline + simple HTML viewer."""
+"""Export a Person Trail to Markdown + HTML."""
 
 from __future__ import annotations
 
@@ -17,134 +17,73 @@ def seconds_to_hms(s: float) -> str:
     return f"{m:02d}:{sec:02d}"
 
 
-def build_markdown(data: dict) -> str:
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--trail", required=True, help="Path to person_trail.json")
+    parser.add_argument("--out-dir", default=None)
+    args = parser.parse_args()
+
+    trail_path = Path(args.trail)
+    with open(trail_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    out_dir = Path(args.out_dir) if args.out_dir else trail_path.parent
+    name = data.get("name", "person")
+
+    # Markdown
     lines = [
-        "# Night Summary — AI No Key",
+        f"# Person Trail — {name}",
         "",
-        f"- Cameras processed: **{data['num_cameras']}**",
-        f"- Unique people tracked: **{data['num_global_people']}**",
+        f"Appearances: **{data['num_appearances']}**",
         "",
-        "## Timeline",
-        "",
+        "| # | Camera | Start | End | Score | Clip |",
+        "|---|--------|-------|-----|-------|------|",
     ]
-
-    # Sort people by first appearance
-    people = sorted(data.get("people", []), key=lambda p: p.get("first_seen", 0))
-
-    for p in people:
-        cams = ", ".join(p["cameras_seen"])
+    for i, a in enumerate(data.get("appearances", []), 1):
+        clip = a.get("clip", "—")
         lines.append(
-            f"### Person {p['global_id']}"
+            f"| {i} | {a['camera']} | {seconds_to_hms(a['start_s'])} | "
+            f"{seconds_to_hms(a['end_s'])} | {a.get('score', 0):.2f} | `{clip}` |"
         )
-        lines.append(
-            f"- Seen: {seconds_to_hms(p['first_seen'])} → {seconds_to_hms(p['last_seen'])}"
-        )
-        lines.append(f"- Cameras: {cams}")
-        lines.append(f"- Local tracks: {p['num_local_tracks']}")
 
-        if p.get("clips"):
-            lines.append("- Clips:")
-            for c in p["clips"]:
-                lines.append(
-                    f"  - `{c['camera']}` ({seconds_to_hms(c['start_s'])}–{seconds_to_hms(c['end_s'])}) → `{c['clip']}`"
-                )
-        lines.append("")
+    md_path = out_dir / "trail.md"
+    md_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Wrote {md_path}")
 
-    return "\n".join(lines)
-
-
-def build_html(data: dict, output_dir: Path) -> str:
-    people = sorted(data.get("people", []), key=lambda p: p.get("first_seen", 0))
-
+    # HTML
     rows = []
-    for p in people:
-        cams = ", ".join(p["cameras_seen"])
-        clip_links = []
-        for c in p.get("clips", []):
-            # Relative path from the HTML file location (output_dir)
-            rel = c["clip"]
-            clip_links.append(
-                f'<a href="{rel}" target="_blank">{c["camera"]} ({seconds_to_hms(c["start_s"])})</a>'
-            )
-        clips_html = " · ".join(clip_links) if clip_links else "—"
-
+    for i, a in enumerate(data.get("appearances", []), 1):
+        clip = a.get("clip")
+        link = f'<a href="{clip}" target="_blank">open</a>' if clip else "—"
         rows.append(
-            f"""
-            <tr>
-              <td><strong>#{p['global_id']}</strong></td>
-              <td>{seconds_to_hms(p['first_seen'])}</td>
-              <td>{seconds_to_hms(p['last_seen'])}</td>
-              <td>{cams}</td>
-              <td>{p['num_local_tracks']}</td>
-              <td>{clips_html}</td>
-            </tr>
-            """
+            f"<tr><td>{i}</td><td>{a['camera']}</td>"
+            f"<td>{seconds_to_hms(a['start_s'])}</td>"
+            f"<td>{seconds_to_hms(a['end_s'])}</td>"
+            f"<td>{a.get('score', 0):.2f}</td><td>{link}</td></tr>"
         )
 
     html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>AI No Key — Night Report</title>
-  <style>
-    body {{ font-family: system-ui, -apple-system, sans-serif; margin: 2rem; background: #0f1115; color: #e6e6e6; }}
-    h1 {{ color: #7dd3a7; }}
-    .meta {{ color: #9aa0a6; margin-bottom: 1.5rem; }}
-    table {{ border-collapse: collapse; width: 100%; }}
-    th, td {{ border-bottom: 1px solid #2a2f3a; padding: 0.6rem 0.8rem; text-align: left; }}
-    th {{ color: #9aa0a6; font-weight: 600; }}
-    a {{ color: #7dd3a7; text-decoration: none; }}
-    a:hover {{ text-decoration: underline; }}
-    tr:hover {{ background: #1a1f2a; }}
-  </style>
-</head>
+<html><head><meta charset="utf-8"><title>Trail — {name}</title>
+<style>
+body {{ font-family: system-ui, sans-serif; margin: 2rem; background: #0f1115; color: #e6e6e6; }}
+h1 {{ color: #7dd3a7; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border-bottom: 1px solid #2a2f3a; padding: 0.5rem 0.8rem; text-align: left; }}
+a {{ color: #7dd3a7; }}
+</style></head>
 <body>
-  <h1>AI No Key — Night Report</h1>
-  <div class="meta">
-    {data['num_cameras']} cameras · {data['num_global_people']} unique people
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Person</th>
-        <th>First seen</th>
-        <th>Last seen</th>
-        <th>Cameras</th>
-        <th>Tracks</th>
-        <th>Clips</th>
-      </tr>
-    </thead>
-    <tbody>
-      {''.join(rows)}
-    </tbody>
-  </table>
-</body>
-</html>
-"""
-    return html
+<h1>Person Trail — {name}</h1>
+<p>{data['num_appearances']} appearances</p>
+<table>
+<thead><tr><th>#</th><th>Camera</th><th>Start</th><th>End</th><th>Score</th><th>Clip</th></tr></thead>
+<tbody>
+{''.join(rows)}
+</tbody></table>
+</body></html>"""
 
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--report", default="data/output/global_report.json")
-    parser.add_argument("--out-md", default="data/output/night_summary.md")
-    parser.add_argument("--out-html", default="data/output/report.html")
-    args = parser.parse_args()
-
-    report_path = Path(args.report)
-    with open(report_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    out_dir = report_path.parent
-
-    md = build_markdown(data)
-    Path(args.out_md).write_text(md, encoding="utf-8")
-    print(f"Wrote {args.out_md}")
-
-    html = build_html(data, out_dir)
-    Path(args.out_html).write_text(html, encoding="utf-8")
-    print(f"Wrote {args.out_html}")
-    print("Open the HTML file in a browser to click through clips.")
+    html_path = out_dir / "report.html"
+    html_path.write_text(html, encoding="utf-8")
+    print(f"Wrote {html_path}")
 
 
 if __name__ == "__main__":

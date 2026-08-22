@@ -1,1 +1,1 @@
-# AI No Key - multi-camera overnight person tracking
+# AI No Key — multi-camera Seed → Follow person tracking for bars

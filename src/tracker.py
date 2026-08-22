@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
@@ -19,21 +19,15 @@ class Track:
     camera: str
     video_path: str = ""
     frames: List[int] = field(default_factory=list)
-    boxes: List[Tuple[float, float, float, float]] = field(default_factory=list)  # xyxy
+    boxes: List[Tuple[float, float, float, float]] = field(default_factory=list)
     confs: List[float] = field(default_factory=list)
-    timestamps: List[float] = field(default_factory=list)  # seconds from start of video
-    crops: List[np.ndarray] = field(default_factory=list)  # optional small crops for ReID
+    timestamps: List[float] = field(default_factory=list)
+    crops: List[np.ndarray] = field(default_factory=list)
 
     def duration(self) -> float:
         if len(self.timestamps) < 2:
             return 0.0
         return self.timestamps[-1] - self.timestamps[0]
-
-    def mean_box(self) -> Tuple[float, float, float, float]:
-        if not self.boxes:
-            return (0.0, 0.0, 0.0, 0.0)
-        arr = np.array(self.boxes)
-        return tuple(arr.mean(axis=0).tolist())
 
     def start_end(self) -> Tuple[float, float]:
         if not self.timestamps:
@@ -42,8 +36,6 @@ class Track:
 
 
 class CameraTracker:
-    """Process one camera's video(s) and collect local tracks."""
-
     def __init__(
         self,
         detector: PersonDetector,
@@ -58,18 +50,13 @@ class CameraTracker:
         self.save_crops = save_crops
         self.max_crops_per_track = max_crops_per_track
 
-    def process_video(
-        self,
-        video_path: str | Path,
-        camera_name: str,
-    ) -> Dict[int, Track]:
+    def process_video(self, video_path: str | Path, camera_name: str) -> Dict[int, Track]:
         video_path = Path(video_path)
         logger.info("Tracking %s (%s)", camera_name, video_path.name)
 
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
             raise RuntimeError(f"Cannot open {video_path}")
-
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         cap.release()
@@ -93,17 +80,11 @@ class CameraTracker:
             boxes = result.boxes.xyxy.cpu().numpy()
             ids = result.boxes.id.int().cpu().tolist()
             confs = result.boxes.conf.cpu().numpy()
-
             t = frame_idx / fps
 
             for box, tid, conf in zip(boxes, ids, confs):
                 if tid not in tracks:
-                    tracks[tid] = Track(
-                        track_id=tid,
-                        camera=camera_name,
-                        video_path=str(video_path),
-                    )
-
+                    tracks[tid] = Track(track_id=tid, camera=camera_name, video_path=str(video_path))
                 tr = tracks[tid]
                 tr.frames.append(frame_idx)
                 tr.boxes.append(tuple(map(float, box)))
@@ -118,16 +99,9 @@ class CameraTracker:
                         x1, y1 = max(0, x1), max(0, y1)
                         x2, y2 = min(w, x2), min(h, y2)
                         if x2 > x1 and y2 > y1:
-                            crop = img[y1:y2, x1:x2].copy()
-                            tr.crops.append(crop)
+                            tr.crops.append(img[y1:y2, x1:x2].copy())
 
             frame_idx += self.frame_skip
 
-        logger.info(
-            "Camera %s: %d tracks from %s (approx %d frames)",
-            camera_name,
-            len(tracks),
-            video_path.name,
-            total_frames,
-        )
+        logger.info("Camera %s: %d tracks from %s (~%d frames)", camera_name, len(tracks), video_path.name, total_frames)
         return tracks

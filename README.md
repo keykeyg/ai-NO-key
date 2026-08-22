@@ -1,99 +1,149 @@
 # AI No Key
 
-Local overnight multi-camera person tracking and re-identification pipeline.
+**Local overnight multi-camera person tracking built for busy bars.**
 
-Built as a practical DIY alternative to UniFi Protect AI Key for ~30 cameras.
-Designed for batch processing of the previous night's footage on a single RTX 3090 (or better).
+Track a specific individual (manager, bartender, hookah staff) from a seed appearance at the beginning of the shift all the way through the night across 30+ cameras.
 
-## What it does
+Designed as a practical, stronger alternative to UniFi Protect AI Key for environments where faces are often not visible and detection queues would overflow.
 
-1. Processes video files from many cameras
-2. Detects people with YOLO
-3. Tracks them per-camera with ByteTrack / BoT-SORT
-4. Extracts appearance embeddings
-5. Matches the same person across cameras into global IDs
-6. Cuts short review clips for each person
-7. Writes a timeline report + clickable HTML viewer
+---
 
-Not real-time. Optimized for overnight batch jobs that finish in a few hours.
+## Core Goal
 
-## Hardware target
+**Seed → Follow**
 
-- RTX 3090 (24 GB) or similar
-- 64 GB+ system RAM recommended for 30 cameras
-- Fast storage for the night's video files
+1. Enroll key staff (or pick a clear early appearance).
+2. Process the entire previous night’s footage offline on an RTX 3090.
+3. Receive a continuous **Person Trail**: every camera that person appeared on, in time order, with short review clips.
 
-## Quick start
+This works even when the person is mostly seen from behind, in dark areas, or in crowded sections of the bar.
+
+---
+
+## Why this exists
+
+UniFi AI Key is excellent at enriching detections and letting you name faces, but it has hard limits in a real bar:
+
+- Detection queue (~200) and hourly caps mean many events are dropped on busy nights.
+- Heavy reliance on clear faces.
+- No strong continuous “follow this one person all night” mode.
+- No use of staff movement patterns between cameras.
+
+AI No Key is built specifically to solve those problems with offline full-pass processing, multi-modal identity (face + body), and camera topology priors.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design rationale and research notes.
+
+---
+
+## Features
+
+- Staff profile enrollment (multiple reference photos per person)
+- Multi-modal identity (face when available + body/clothing ReID)
+- Seed → Follow mode for a single individual
+- Camera topology / transition priors
+- Overnight batch processing of many cameras on one GPU
+- Person Trail report + ordered short clips
+- HTML + Markdown output for quick morning review
+
+---
+
+## Quick Start
 
 ```bash
 git clone https://github.com/keykeyg/ai-NO-key.git
 cd ai-NO-key
 
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\\Scripts\\activate
-
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# Put your night's videos here (one folder per camera)
-# data/cameras/cam01/night.mp4
-# data/cameras/cam02/night.mp4
-# ...
-
 cp config.example.yaml config.yaml
-# edit paths if needed
-
-python scripts/process_night.py --config config.yaml
-python scripts/export_report.py
+# Edit paths, camera list, and topology for your bars
 ```
 
-Then open `data/output/report.html` in a browser. You can click the clip links to jump straight to each camera appearance of a person.
+### 1. Enroll staff (do this once)
 
-## Project layout
+```bash
+python scripts/enroll_staff.py --name "Marcus" --role manager --images path/to/photos/
+```
+
+### 2. Put the night’s videos in place
+
+```
+data/cameras/
+  bar_main/2026-08-21.mp4
+  hookah/2026-08-21.mp4
+  kitchen/2026-08-21.mp4
+  ...
+```
+
+### 3. Run overnight job (full detection + tracking)
+
+```bash
+python scripts/process_night.py --config config.yaml
+```
+
+### 4. Follow a specific person
+
+```bash
+# Using an enrolled profile
+python scripts/follow_person.py --config config.yaml --profile Marcus
+
+# Or seed from a specific local track that appeared early
+python scripts/follow_person.py --config config.yaml --seed-camera bar_main --seed-track 12
+```
+
+### 5. Review
+
+Open `data/output/trails/Marcus/report.html` (or the equivalent for the seed you chose).
+
+---
+
+## Project Layout
 
 ```
 ai-NO-key/
+├── ARCHITECTURE.md          # Full design + UniFi comparison
+├── README.md
 ├── config.example.yaml
 ├── requirements.txt
 ├── scripts/
-│   ├── process_night.py      # main overnight runner
-│   └── export_report.py      # markdown + HTML report
+│   ├── enroll_staff.py      # Create staff profiles
+│   ├── process_night.py     # Detect + track all cameras
+│   ├── follow_person.py     # Seed → Follow mode
+│   └── export_report.py
 ├── src/
 │   ├── detector.py
 │   ├── tracker.py
-│   ├── reid.py
-│   ├── matcher.py
-│   ├── clips.py              # track / person clip extraction
+│   ├── reid.py              # Multi-modal embeddings
+│   ├── profiles.py          # Staff gallery
+│   ├── topology.py          # Camera transition graph
+│   ├── matcher.py           # Seed matching + global association
+│   ├── clips.py
 │   ├── pipeline.py
 │   └── utils.py
-└── data/                     # your videos + outputs (gitignored)
+└── data/                    # videos, profiles, output (gitignored)
 ```
 
-## Outputs
+---
 
-After a run you get:
+## Hardware
 
-- `data/output/global_report.json` — full structured results
-- `data/output/per_camera/*.json` — per-camera track lists
-- `data/output/clips/person_XXXX/*.mp4` — short review clips per person
-- `data/output/night_summary.md` — readable timeline
-- `data/output/report.html` — clickable viewer
+- RTX 3090 (24 GB) or better recommended
+- 64 GB+ system RAM for large nights
+- Fast storage for the night’s video files
 
-## Design notes
+Processing is sequential/grouped per camera so VRAM stays manageable.
 
-- **Batch, not live** — process completed recordings so we can use larger models and better ReID.
-- **One GPU** — cameras are processed sequentially so VRAM stays under control on a 3090.
-- **ReID is the hard part** — single-camera tracking is easy; matching the same person across non-overlapping cameras is where most systems fail.
-- **Clips are the point** — the goal is to make the next morning review fast: open the HTML, click a person, watch every camera they appeared on.
+---
 
 ## Status
 
-Usable core. Detection + tracking + basic cross-camera matching + clip extraction + HTML report are in.
+This is a working foundation focused on the exact goal above.  
+The biggest future accuracy upgrade is swapping the body embedding for a real OSNet / Torchreid model (the interfaces are already in place).
 
-Next priorities:
-- Full OSNet / Torchreid embeddings
-- UniFi Protect / Frigate helpers to pull the night's clips automatically
-- Stronger gallery management and temporal constraints
+---
 
 ## License
 
-Private for now.
+Private.

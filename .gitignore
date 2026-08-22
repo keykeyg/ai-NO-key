@@ -1,33 +1,18 @@
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
 .venv/
 venv/
 env/
 .env
-
-# Data & outputs
 data/
 *.mp4
 *.mkv
 *.avi
 *.mov
-*.jpg
-*.jpeg
-*.png
 *.pt
 *.onnx
 *.engine
-
-# IDE / OS
 .idea/
 .vscode/
 .DS_Store
-Thumbs.db
-
-# Local config (keep the example)
 config.yaml
-
-# Jupyter
-.ipynb_checkpoints/

@@ -31,7 +31,11 @@ def export_range(
     cameras: Optional[List[str]] = None,
     out_root: Optional[str] = None,
 ) -> Dict[str, List[Path]]:
-    """Download NVR footage for a time window into data/cameras/<folder>/."""
+    """Download NVR footage for a time window into data/cameras/<folder>/.
+
+    If cameras is None, only pulls cameras listed under config nvr.cameras
+    (your mapped set) — never the entire Protect site.
+    """
     nvr = config.get("nvr") or {}
     kind = (nvr.get("type") or "unifi").lower()
     tz_name = config.get("timezone") or nvr.get("timezone") or "America/Chicago"
@@ -41,6 +45,11 @@ def export_range(
 
     dest = Path(out_root or config.get("cameras_root") or "data/cameras")
     ensure_dir(dest)
+
+    # Default: only the mapped Protect names (not every camera on the NVR)
+    if cameras is None:
+        mapped = nvr.get("cameras") or {}
+        cameras = list(mapped.keys()) if mapped else None
 
     if kind in ("unifi", "protect", "unifi-protect"):
         return _pull_unifi(nvr, t0, t1, cameras, dest, tz_name)
@@ -100,7 +109,7 @@ def _pull_unifi(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path, tz_n
 
     opener = _unifi_login(host, port, user, password, verify)
     cam_list = _unifi_cameras(opener, host, port)
-    logger.info("UniFi Protect: %d cameras", len(cam_list))
+    logger.info("UniFi Protect: %d cameras on site", len(cam_list))
 
     wanted = {c.lower() for c in cameras} if cameras else None
     written: Dict[str, List[Path]] = {}
@@ -265,7 +274,6 @@ def _pull_frigate(nvr: dict, t0: datetime, t1: datetime, cameras, dest: Path) ->
     mapping = _name_map(nvr)
     cam_names = cameras or list((nvr.get("cameras") or {}).keys())
     if not cam_names:
-        # Try Frigate config API
         url = f"{scheme}://{host}:{port}/api/config"
         try:
             with urllib.request.urlopen(url, timeout=15) as resp:

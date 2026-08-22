@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict
 
+from .clips import extract_person_clips
 from .detector import PersonDetector
 from .matcher import CrossCameraMatcher
 from .reid import ReIDEmbedder
@@ -35,6 +36,7 @@ class OvernightPipeline:
             match_threshold=reid_cfg.get("match_threshold", 0.55),
             max_time_gap_seconds=reid_cfg.get("max_time_gap_seconds", 300),
         )
+        self.save_track_clips = config.get("save_track_clips", True)
 
     def run(self) -> Dict[str, Any]:
         cameras = list_camera_videos(self.cfg["cameras_root"])
@@ -46,12 +48,10 @@ class OvernightPipeline:
         all_tracks: Dict[str, Dict] = {}
         all_embeddings: Dict[str, Dict] = {}
 
-        # Process cameras one by one (safe for 24 GB VRAM)
         for cam_name, videos in cameras.items():
             cam_tracks = {}
             for video in videos:
                 tracks = self.camera_tracker.process_video(video, cam_name)
-                # merge tracks if multiple videos per camera (simple ID offset)
                 offset = max(cam_tracks.keys(), default=0)
                 for lid, tr in tracks.items():
                     new_id = lid + offset
@@ -62,7 +62,6 @@ class OvernightPipeline:
             all_tracks[cam_name] = cam_tracks
             all_embeddings[cam_name] = embs
 
-            # Per-camera summary
             summary = {
                 "camera": cam_name,
                 "num_tracks": len(cam_tracks),
@@ -73,16 +72,16 @@ class OvernightPipeline:
                         "num_frames": len(tr.frames),
                         "first_seen": round(tr.timestamps[0], 1) if tr.timestamps else None,
                         "last_seen": round(tr.timestamps[-1], 1) if tr.timestamps else None,
+                        "video": tr.video_path,
                     }
                     for tid, tr in cam_tracks.items()
                 ],
             }
             save_json(summary, self.output_dir / "per_camera" / f"{cam_name}.json")
 
-        # Cross-camera matching
         globals_ = self.matcher.match(all_tracks, all_embeddings)
 
-        # Build final report
+        clips_dir = ensure_dir(self.output_dir / "clips")
         report = {
             "num_cameras": len(cameras),
             "num_global_people": len(globals_),
@@ -97,7 +96,18 @@ class OvernightPipeline:
                 "first_seen": round(gp.first_seen, 1),
                 "last_seen": round(gp.last_seen, 1),
                 "track_refs": [{"camera": c, "local_id": lid} for c, lid in gp.tracks],
+                "clips": [],
             }
+
+            if self.save_track_clips:
+                clip_infos = extract_person_clips(
+                    global_id=gid,
+                    track_refs=gp.tracks,
+                    all_tracks=all_tracks,
+                    clips_dir=clips_dir,
+                )
+                person["clips"] = clip_infos
+
             report["people"].append(person)
 
         save_json(report, self.output_dir / "global_report.json")

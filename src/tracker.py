@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from ultralytics.engine.results import Results
 
 from .detector import PersonDetector
 
@@ -18,6 +17,7 @@ logger = logging.getLogger(__name__)
 class Track:
     track_id: int
     camera: str
+    video_path: str = ""
     frames: List[int] = field(default_factory=list)
     boxes: List[Tuple[float, float, float, float]] = field(default_factory=list)  # xyxy
     confs: List[float] = field(default_factory=list)
@@ -30,8 +30,15 @@ class Track:
         return self.timestamps[-1] - self.timestamps[0]
 
     def mean_box(self) -> Tuple[float, float, float, float]:
+        if not self.boxes:
+            return (0.0, 0.0, 0.0, 0.0)
         arr = np.array(self.boxes)
         return tuple(arr.mean(axis=0).tolist())
+
+    def start_end(self) -> Tuple[float, float]:
+        if not self.timestamps:
+            return (0.0, 0.0)
+        return (self.timestamps[0], self.timestamps[-1])
 
 
 class CameraTracker:
@@ -70,7 +77,6 @@ class CameraTracker:
         tracks: Dict[int, Track] = {}
         frame_idx = 0
 
-        # Ultralytics handles the video file directly and keeps tracker state
         results_gen = self.detector.track(
             source=str(video_path),
             tracker=self.tracker_cfg,
@@ -88,12 +94,15 @@ class CameraTracker:
             ids = result.boxes.id.int().cpu().tolist()
             confs = result.boxes.conf.cpu().numpy()
 
-            # Approximate time from frame index
             t = frame_idx / fps
 
             for box, tid, conf in zip(boxes, ids, confs):
                 if tid not in tracks:
-                    tracks[tid] = Track(track_id=tid, camera=camera_name)
+                    tracks[tid] = Track(
+                        track_id=tid,
+                        camera=camera_name,
+                        video_path=str(video_path),
+                    )
 
                 tr = tracks[tid]
                 tr.frames.append(frame_idx)
@@ -102,7 +111,6 @@ class CameraTracker:
                 tr.timestamps.append(t)
 
                 if self.save_crops and len(tr.crops) < self.max_crops_per_track:
-                    # result.orig_img is the current frame
                     img = result.orig_img
                     if img is not None:
                         x1, y1, x2, y2 = map(int, box)

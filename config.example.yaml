@@ -45,4 +45,4 @@ reid:
 # Logging
 log_level: "INFO"
 save_annotated_videos: false   # set true if you want full annotated MP4s (slow + disk heavy)
-save_track_clips: true         # short clips of each track (recommended)
+save_track_clips: true         # short clips of each person across cameras (recommended)

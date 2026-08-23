@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Night Trail web UI.  python scripts/serve_ui.py  →  http://127.0.0.1:8787"""
 from __future__ import annotations
-import argparse, base64, json, logging, mimetypes, sys, threading, traceback, uuid
+import argparse, base64, json, logging, mimetypes, os, sys, threading, traceback, uuid
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -12,6 +12,26 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 WEB = ROOT / "web"
 logger = logging.getLogger("serve_ui")
+
+def _load_dotenv() -> None:
+    """Load .unifi.env into process env (API key, host, etc.)."""
+    path = ROOT / ".unifi.env"
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        if k:
+            os.environ[k] = v
+
+_load_dotenv()
 
 def _load_cfg(path: str = "config.yaml") -> dict:
     try:
@@ -60,25 +80,28 @@ def setup_status() -> dict:
     sec_p = _secrets_path()
     configured = cfg_p.exists()
     has_secrets = sec_p.exists()
-    host = ""
+    host = os.environ.get("UNIFI_HOST") or ""
     timezone = "America/Chicago"
     nvr_type = "unifi"
     source_mode = CFG.get("source_mode") or "nvr"
+    has_api_key = bool(os.environ.get("UNIFI_API_KEY") or os.environ.get("UFP_API_KEY"))
     if configured:
         try:
             import yaml
             data = yaml.safe_load(cfg_p.read_text()) or {}
             nvr = data.get("nvr") or {}
-            host = nvr.get("host") or ""
+            host = host or nvr.get("host") or ""
             timezone = data.get("timezone") or timezone
             nvr_type = nvr.get("type") or nvr_type
             source_mode = data.get("source_mode") or source_mode
+            has_api_key = has_api_key or bool(nvr.get("api_key"))
         except Exception:
             pass
     return {
         "configured": configured and bool(host or has_secrets),
         "has_config": configured,
         "has_secrets": has_secrets,
+        "has_api_key": has_api_key,
         "host": host,
         "timezone": timezone,
         "nvr_type": nvr_type,
@@ -92,6 +115,7 @@ def save_setup(body: dict) -> dict:
     host = (body.get("host") or "").strip()
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
+    api_key = (body.get("api_key") or body.get("apiKey") or "").strip()
     timezone = (body.get("timezone") or "America/Chicago").strip()
     nvr_type = (body.get("nvr_type") or "unifi").strip().lower()
     port = int(body.get("port") or (5000 if nvr_type == "frigate" else 443))
@@ -113,27 +137,49 @@ def save_setup(body: dict) -> dict:
     nvr["port"] = port
     nvr["username"] = ""
     nvr["password"] = ""
+    # never store raw key in yaml — only in .unifi.env
     data["nvr"] = nvr
     cfg_p.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
 
-    if username or password or host:
-        import os
-        if nvr_type == "frigate":
-            lines = [f'export FRIGATE_HOST="{host}"', f'export FRIGATE_PORT="{port}"']
-            os.environ["FRIGATE_HOST"] = host
-            os.environ["FRIGATE_PORT"] = str(port)
-        else:
-            lines = [
-                f'export UNIFI_HOST="{host}"',
-                f'export UNIFI_USERNAME="{username}"',
-                f'export UNIFI_PASSWORD="{password}"',
-            ]
-            os.environ["UNIFI_HOST"] = host
+    # Preserve existing API key if form left it blank
+    existing_key = os.environ.get("UNIFI_API_KEY") or os.environ.get("UFP_API_KEY") or ""
+    if not api_key and _secrets_path().exists():
+        for line in _secrets_path().read_text().splitlines():
+            if "UNIFI_API_KEY=" in line or "UFP_API_KEY=" in line:
+                raw = line.replace("export ", "").split("=", 1)[-1].strip().strip('"').strip("'")
+                if raw:
+                    existing_key = raw
+                    break
+    final_key = api_key or existing_key
+
+    lines = []
+    if nvr_type == "frigate":
+        lines = [f'export FRIGATE_HOST="{host}"', f'export FRIGATE_PORT="{port}"']
+        os.environ["FRIGATE_HOST"] = host
+        os.environ["FRIGATE_PORT"] = str(port)
+    else:
+        lines = [f'export UNIFI_HOST="{host}"']
+        os.environ["UNIFI_HOST"] = host
+        if username:
+            lines.append(f'export UNIFI_USERNAME="{username}"')
             os.environ["UNIFI_USERNAME"] = username
+        if password:
+            lines.append(f'export UNIFI_PASSWORD="{password}"')
             os.environ["UNIFI_PASSWORD"] = password
+        if final_key:
+            lines.append(f'export UNIFI_API_KEY="{final_key}"')
+            os.environ["UNIFI_API_KEY"] = final_key
+        os.environ["UNIFI_PORT"] = str(port)
+    if host or username or password or final_key:
         _secrets_path().write_text("\n".join(lines) + "\n")
 
+    # Inject key into live CFG for test_connection without restart
     CFG = _load_cfg("config.yaml")
+    if final_key:
+        CFG.setdefault("nvr", {})["api_key"] = final_key
+    if host:
+        CFG.setdefault("nvr", {})["host"] = host
+        CFG.setdefault("nvr", {})["port"] = port
     return setup_status()
 
 def _json(h: BaseHTTPRequestHandler, code: int, payload: Any) -> None:
@@ -250,6 +296,7 @@ def api_status() -> dict:
         "reid": _osnet_status(),
         "sites": list_sites(CFG),
         "active_site": CFG.get("active_site") or "default",
+        "setup": setup_status(),
     }
 
 def _b64_jpg(img) -> str:
@@ -318,6 +365,13 @@ def api_enroll(body: dict) -> dict:
 
 def api_test_nvr() -> dict:
     from src.nvr import test_connection, NvrError
+    # Ensure CFG has live env key
+    key = os.environ.get("UNIFI_API_KEY") or os.environ.get("UFP_API_KEY") or ""
+    if key:
+        CFG.setdefault("nvr", {})["api_key"] = key
+    host = os.environ.get("UNIFI_HOST") or (CFG.get("nvr") or {}).get("host")
+    if host:
+        CFG.setdefault("nvr", {})["host"] = host
     try:
         return test_connection(CFG)
     except NvrError as e:
@@ -341,6 +395,9 @@ def api_seed_pull(body: dict) -> dict:
     t0, t1 = t - half, t + half
     start_s = t0.strftime("%Y-%m-%d %H:%M")
     end_s = t1.strftime("%Y-%m-%d %H:%M")
+    key = os.environ.get("UNIFI_API_KEY") or ""
+    if key:
+        CFG.setdefault("nvr", {})["api_key"] = key
     try:
         written = export_range(CFG, start_s, end_s, cameras=[camera])
     except NvrError as e:
@@ -401,30 +458,22 @@ def _run_search_job(job_id: str, body: dict) -> None:
             raise ValueError("profile required")
         start, end = body.get("start"), body.get("end")
         source = (body.get("source") or CFG.get("source_mode") or "nvr").lower()
+        key = os.environ.get("UNIFI_API_KEY") or ""
+        if key:
+            CFG.setdefault("nvr", {})["api_key"] = key
 
         def on_progress(phase, cur, total, detail=""):
             if prog.is_cancelled(job_id):
                 raise RuntimeError("cancelled")
             labels = {"pull": "Pulling from NVR", "detect": "Detecting people", "match": "Matching profile"}
-            prog.update(
-                job_id,
-                phase=phase,
-                message=labels.get(phase, phase),
-                current=cur,
-                total=total,
-                detail=str(detail or ""),
-            )
+            prog.update(job_id, phase=phase, message=labels.get(phase, phase), current=cur, total=total, detail=str(detail or ""))
 
         pipeline = OvernightPipeline(CFG)
         report = pipeline.search_person(
-            profile_name=profile,
-            start=start,
-            end=end,
+            profile_name=profile, start=start, end=end,
             start_s=float(body["start_s"]) if body.get("start_s") is not None else None,
             end_s=float(body["end_s"]) if body.get("end_s") is not None else None,
-            source=source,
-            force_detect=bool(body.get("force")),
-            progress=on_progress,
+            source=source, force_detect=bool(body.get("force")), progress=on_progress,
         )
         if prog.is_cancelled(job_id):
             prog.fail(job_id, "cancelled")
@@ -454,11 +503,12 @@ def api_search_sync(body: dict) -> dict:
     profile = (body.get("profile") or "").strip()
     if not profile:
         raise ValueError("profile required")
+    key = os.environ.get("UNIFI_API_KEY") or ""
+    if key:
+        CFG.setdefault("nvr", {})["api_key"] = key
     pipeline = OvernightPipeline(CFG)
     return pipeline.search_person(
-        profile_name=profile,
-        start=body.get("start"),
-        end=body.get("end"),
+        profile_name=profile, start=body.get("start"), end=body.get("end"),
         start_s=float(body["start_s"]) if body.get("start_s") is not None else None,
         end_s=float(body["end_s"]) if body.get("end_s") is not None else None,
         source=(body.get("source") or CFG.get("source_mode") or "nvr").lower(),
@@ -466,7 +516,7 @@ def api_search_sync(body: dict) -> dict:
     )
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NightTrail/1.3"
+    server_version = "NightTrail/1.4"
     def log_message(self, fmt, *args):
         logger.info("%s - %s", self.address_string(), fmt % args)
     def do_OPTIONS(self):
@@ -569,14 +619,19 @@ def main() -> None:
     p.add_argument("--port", type=int, default=8787)
     p.add_argument("--config", default="config.yaml")
     args = p.parse_args()
+    _load_dotenv()
     CFG = _load_cfg(args.config)
+    key = os.environ.get("UNIFI_API_KEY") or ""
+    if key:
+        CFG.setdefault("nvr", {})["api_key"] = key
     LIVE = _pipeline_ok()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     if not WEB.exists():
         raise SystemExit(f"Missing {WEB}")
     reid = _osnet_status()
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Night Trail  [{'LIVE' if LIVE else 'DEMO'}]  source={CFG.get('source_mode', 'nvr')}  {reid['label']}")
+    auth = "api_key" if key else "password/env"
+    print(f"Night Trail  [{'LIVE' if LIVE else 'DEMO'}]  source={CFG.get('source_mode', 'nvr')}  {reid['label']}  auth={auth}")
     print(f"  http://{args.host}:{args.port}")
     try:
         httpd.serve_forever()

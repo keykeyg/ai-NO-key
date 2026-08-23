@@ -27,7 +27,7 @@ class NvrError(RuntimeError):
 
 
 def test_connection(config: dict) -> dict:
-    """Login + list cameras. Does not pull video."""
+    """Auth + list cameras. Supports UniFi API key or username/password."""
     nvr = config.get("nvr") or {}
     kind = (nvr.get("type") or "unifi").lower()
     host = nvr.get("host") or _env("UNIFI_HOST") or _env("UFP_HOST") or _env("FRIGATE_HOST")
@@ -47,12 +47,12 @@ def test_connection(config: dict) -> dict:
             raise NvrError(f"Frigate unreachable: {e}") from e
 
     port = int(nvr.get("port") or _env("UNIFI_PORT") or 443)
-    user = nvr.get("username") or _env("UNIFI_USERNAME") or _env("UFP_USERNAME")
-    password = nvr.get("password") or _env("UNIFI_PASSWORD") or _env("UFP_PASSWORD")
     verify = bool(nvr.get("verify_ssl", False))
-    if not user or not password:
-        raise NvrError("UniFi needs username/password")
-    opener = _unifi_login(host, port, user, password, verify)
+    api_key = (nvr.get("api_key") or _env("UNIFI_API_KEY") or _env("UFP_API_KEY") or "").strip()
+    user = nvr.get("username") or _env("UNIFI_USERNAME") or _env("UFP_USERNAME") or ""
+    password = nvr.get("password") or _env("UNIFI_PASSWORD") or _env("UFP_PASSWORD") or ""
+
+    opener = _unifi_opener(host, port, user, password, api_key, verify)
     cam_list = _unifi_cameras(opener, host, port)
     names = [c.get("name") or c.get("id") for c in cam_list if c.get("name") or c.get("id")]
     mapped = list((nvr.get("cameras") or {}).keys())
@@ -61,6 +61,7 @@ def test_connection(config: dict) -> dict:
         "ok": True,
         "type": "unifi",
         "host": host,
+        "auth": "api_key" if api_key else "password",
         "cameras": names,
         "count": len(names),
         "mapped": mapped,
@@ -128,8 +129,9 @@ def _pull_unifi(nvr, t0, t1, cameras, dest, tz_name, progress: ProgressCb = None
     if not host:
         raise NvrError("Set nvr.host or UNIFI_HOST")
     port = int(nvr.get("port") or _env("UNIFI_PORT") or 443)
-    user = nvr.get("username") or _env("UNIFI_USERNAME") or _env("UFP_USERNAME")
-    password = nvr.get("password") or _env("UNIFI_PASSWORD") or _env("UFP_PASSWORD")
+    user = nvr.get("username") or _env("UNIFI_USERNAME") or _env("UFP_USERNAME") or ""
+    password = nvr.get("password") or _env("UNIFI_PASSWORD") or _env("UFP_PASSWORD") or ""
+    api_key = (nvr.get("api_key") or _env("UNIFI_API_KEY") or _env("UFP_API_KEY") or "").strip()
     verify = bool(nvr.get("verify_ssl", False))
     chunk_min = int(nvr.get("chunk_minutes") or 15)
     mapping = _name_map(nvr)
@@ -138,10 +140,10 @@ def _pull_unifi(nvr, t0, t1, cameras, dest, tz_name, progress: ProgressCb = None
     if pulled is not None:
         return pulled
 
-    if not user or not password:
-        raise NvrError("UniFi needs username/password")
+    if not api_key and (not user or not password):
+        raise NvrError("UniFi needs API key (UNIFI_API_KEY) or username/password")
 
-    opener = _unifi_login(host, port, user, password, verify)
+    opener = _unifi_opener(host, port, user, password, api_key, verify)
     cam_list = _unifi_cameras(opener, host, port)
     logger.info("UniFi Protect: %d cameras on site", len(cam_list))
 
@@ -182,6 +184,43 @@ def _ssl_ctx(verify: bool):
     if verify:
         return ssl.create_default_context()
     return ssl._create_unverified_context()
+
+
+class _ApiKeyHandler(urllib.request.BaseHandler):
+    """Inject X-API-KEY on every HTTPS request."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    def https_request(self, req):
+        req.add_header("X-API-KEY", self.api_key)
+        return req
+
+    http_request = https_request
+
+
+def _unifi_opener(host: str, port: int, user: str, password: str, api_key: str, verify: bool):
+    """API key preferred; falls back to cookie login."""
+    ctx = _ssl_ctx(verify)
+    if api_key:
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ctx),
+            _ApiKeyHandler(api_key),
+        )
+        # Smoke-test key
+        url = f"https://{host}:{port}/proxy/protect/api/cameras"
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        try:
+            with opener.open(req, timeout=30) as resp:
+                _ = resp.read(64)
+        except Exception as e:
+            raise NvrError(f"UniFi API key auth failed: {e}") from e
+        logger.info("UniFi API key auth OK at %s", host)
+        return opener
+
+    if not user or not password:
+        raise NvrError("UniFi needs API key or username/password")
+    return _unifi_login(host, port, user, password, verify)
 
 
 def _unifi_login(host: str, port: int, user: str, password: str, verify: bool):
